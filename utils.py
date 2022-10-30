@@ -2,6 +2,8 @@ import re
 
 INTRODUCER_HOST = "fa22-cs425-3610.cs.illinois.edu"
 
+# map < str: map <int: list> >
+fileStructure = None
 
 class Status:
     NEW = 'NEW'
@@ -11,6 +13,8 @@ class Type:
     PING = "Ping"
     PONG = "Pong"
     JOIN = "Join"
+    SEND = "Send"
+    FILES = "Files"
 
 class Field:
     TYPE = "Type"
