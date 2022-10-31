@@ -58,5 +58,6 @@ def get_all_hosts():
         l.append("fa22-cs425-36%02d.cs.illinois.edu" % i)
     return l
 
-
-
+def elem(s):
+    return next(iter(s))
+    

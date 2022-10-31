@@ -56,7 +56,8 @@ class Server:
         self.ml_lock = threading.Lock()
         # record the time current process receives last ack from its neighbors
         self.last_update = {}
-        self.fileStructure = dict()
+        self.MachinesByFile = {}
+        self.FilesByMachine = {}
         self.INTRODUCER_HOST = utils.INTRODUCER_HOST
 
         self.send_lock = threading.Lock()
@@ -147,10 +148,19 @@ class Server:
             try:
                 data, addr = sdfs_socket.recvfrom(SIZE)
                 if data:
-                    arg, target, local_filename, sdfs_filename = json.loads(data.decode())
+                    query = json.loads(data.decode())
+                    if query[0] == utils.SDFS_Type.UPDATE_PROCESS:
+                        self.update_process(target)
+                        continue
+                    
+                    # TODO: Add in implementation to constantly send a file list around
+                    # if query[0] == utils.SDFS_Type.FILE_LIST:
+                    #     self.
+
+                    arg, target, local_filename, sdfs_filename = query
                     if arg == utils.SDFS_Type.PUT:
                         self.put(local_filename, sdfs_filename, target)
-                    if arg == utils.SDFS_Type.ROUTE_PUT:
+                    elif arg == utils.SDFS_Type.ROUTE_PUT:
                         self.route_put(local_filename, sdfs_filename, target)
                     elif arg == utils.SDFS_Type.RECEIVE_FILE:
                         thread = threading.Thread(target = self.receive_file, args = (sdfs_filename, (target, PORT + 2)))
@@ -298,25 +308,27 @@ class Server:
                             monitor_logger.info(json.dumps(self.MembershipList))
                             self.MembershipList[hostname] = (value[0], utils.Status.LEAVE)
                             #if intro 
+                            self.assignLeader()
+                            self.update_process(hostname)
 
-                            if(HOST == self.INTRODUCER_HOST):
-                                # fix -> check if the newNode is status leave, if it is, choose new random node
-                                newReplicaNodeHost, newReplicaNodeValue = random.choice(list(self.MembershipList.values()))
-                                # newReplicaNode = random.randint(0, len(self.MembershipList))
-                                while (newReplicaNodeValue[1] != utils.Status.LEAVE ):
-                                    newReplicaNodeHost, newReplicaNodeValue = random.choice(list(self.MembershipList.values()))
-                                for fileName in fileStructure.keys():
-                                    for version in fileName.keys():
-                                        if hostname in fileName[version]:
-                                            fileName[version].remove(hostname)
-                                            #pick another node in this list that has the versioned file 
-                                            fileContainingReplica = fileName[version][0]
-                                            # send a message to fileContainingReplica telling it to send its versioned file to newReplicaNode
-                                            join_msg = [utils.Type.SEND, newReplicaNodeHost, version]
-                                            # TODO: Ensure that we have another socket to listen
-                                            # print("sending", join_msg)
-                                            detection_socket.sendto(json.dumps(join_msg).encode(), (fileContainingReplica, PORT+1))
-                                            # add a new request_type for this^?
+                            # if HOST == self.INTRODUCER_HOST:
+                            #     # fix -> check if the newNode is status leave, if it is, choose new random node
+                            #     newReplicaNodeHost, newReplicaNodeValue = random.choice(list(self.MembershipList.values()))
+                            #     # newReplicaNode = random.randint(0, len(self.MembershipList))
+                            #     while (newReplicaNodeValue[1] != utils.Status.LEAVE):
+                            #         newReplicaNodeHost, newReplicaNodeValue = random.choice(list(self.MembershipList.values()))
+                            #     for fileName in self.fileStructure.keys():
+                            #         for version in fileName.keys():
+                            #             if hostname in fileName[version]:
+                            #                 fileName[version].remove(hostname)
+                            #                 #pick another node in this list that has the versioned file 
+                            #                 fileContainingReplica = fileName[version][0]
+                            #                 # send a message to fileContainingReplica telling it to send its versioned file to newReplicaNode
+                            #                 join_msg = [utils.Type.SEND, newReplicaNodeHost, version]
+                            #                 # TODO: Ensure that we have another socket to listen
+                            #                 # print("sending", join_msg)
+                            #                 detection_socket.sendto(json.dumps(join_msg).encode(), (fileContainingReplica, PORT+1))
+                            #                 # add a new request_type for this^?
                             
                             monitor_logger.info("Encounter timeout after:")
                             monitor_logger.info(json.dumps(self.MembershipList))
@@ -362,7 +374,35 @@ class Server:
         '''
        
         print(IP + "#" + self.MembershipList[HOST][0])
-        
+
+    
+    def update_process(self, target):
+        outgoing_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        if HOST == utils.INTRODUCER_HOST:
+            # Send a bunch of reroute messages
+
+            for f in self.FilesByMachine[target]:
+                # Iterate through each file in the deleted machine, and remove the machine from files
+                keys = self.MembershipList.keys()
+                self.MachinesByFile[f].remove(target) #Remove the machine from the dictionary, no longer in the file
+
+                N = len(keys)
+                offset = random.randrange(N)
+                for i in range(N):
+                    new_replica = self.MembershipList[keys[(i + offset) % N]]
+                    old_replica = utils.elem(self.MachinesByFile[f])
+
+                    if new_replica[1] != utils.Status.LEAVE:
+                        q = [utils.SDFS_Type.ROUTE_PUT, new_replica, f, f".files/{f}"]
+                        print(f"sending query={q}")
+                        outgoing_socket.sendto(json.dumps(query).encode(), (old_replica, PORT + 1))
+
+                        break
+        else:
+            query = [utils.SDFS_Type.UPDATE_PROCESS, target, "", ""]
+            outgoing_socket.sendto(json.dumps(query).encode(), (utils.INTRODUCER_HOST, PORT + 1))
+
+
     # This will run on a thread, IF the receiver gets a SEND/GET request
     # Note that addr is the address of PORT + 2
     def receive_file(self, filename, addr):
@@ -429,6 +469,7 @@ class Server:
     def route_put(self, local_filename, sdfs_filename, target):
         t = threading.Thread(target = self.send_file, args = (local_filename, sdfs_filename, target))
         t.start()
+
 
     def put(self, local_filename, sdfs_filename, target):
         sender_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
