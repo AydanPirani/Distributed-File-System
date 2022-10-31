@@ -92,9 +92,10 @@ class Server:
         else:
             print("This is introducer host!")
 
-            for h in self.MembershipList:
-                join_msg = [utils.Type.FILES, HOST, self.fileStructure]
-                outgoing_socket.sendto(json.dumps(join_msg).encode(), (h, PORT))
+            # TODO: Add implementation for this
+            # for h in self.MembershipList:
+            #     join_msg = [utils.Type.FILES, HOST, self.fileStructure]
+            #     outgoing_socket.sendto(json.dumps(join_msg).encode(), (h, PORT))
 
 
     def send_ping(self, host):
@@ -264,9 +265,9 @@ class Server:
                     elif request_type == utils.Type.SEND:
                         # retrieve file and send to sender_host(newReplicaNodeHost)
                         pass
-                    elif request_type == utils.Type.FILES:
+                    # elif request_type == utils.Type.FILES:
                         # retrieve file and send to sender_host(newReplicaNodeHost)
-                        self.fileStructure = request_membership
+                        # self.fileStructure = request_membership
                         
                     else:
                         recv_logger.error("Unknown message type")
@@ -500,6 +501,8 @@ class Server:
             replica_set = get_replica_set()
             print(f"replica set = {replica_set}")
 
+            if sdfs_filename not in self.MachinesByFile:
+                self.MachinesByFile[sdfs_filename] = {}
             current_version = len(self.MachinesByFile[sdfs_filename]) + 1
             self.MachinesByFile[sdfs_filename][current_version] = replica_set
 
