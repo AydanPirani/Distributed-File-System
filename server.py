@@ -160,8 +160,10 @@ class Server:
                     arg, target, local_filename, sdfs_filename = query
                     if arg == utils.SDFS_Type.PUT:
                         self.put(local_filename, sdfs_filename, target)
-                    elif arg == utils.SDFS_Type.ROUTE_PUT:
-                        self.route_put(local_filename, sdfs_filename, target)
+                    elif arg == utils.SDFS_Type.GET:
+                        self.get(local_filename, sdfs_filename, target)
+                    elif arg == utils.SDFS_Type.ROUTE:
+                        self.route(local_filename, sdfs_filename, target)
                     elif arg == utils.SDFS_Type.RECEIVE_FILE:
                         thread = threading.Thread(target = self.receive_file, args = (sdfs_filename, (target, PORT + 2)))
                         thread.start()
@@ -393,7 +395,7 @@ class Server:
                     old_replica = utils.elem(self.MachinesByFile[f])
 
                     if new_replica[1] != utils.Status.LEAVE:
-                        q = [utils.SDFS_Type.ROUTE_PUT, new_replica, f, f".files/{f}"]
+                        q = [utils.SDFS_Type.ROUTE, new_replica, f, f".files/{f}"]
                         print(f"sending query={q}")
                         outgoing_socket.sendto(json.dumps(query).encode(), (old_replica, PORT + 1))
 
@@ -405,7 +407,7 @@ class Server:
 
     # This will run on a thread, IF the receiver gets a SEND/GET request
     # Note that addr is the address of PORT + 2
-    def receive_file(self, filename, addr):
+    def receive_file(self, dest_filename, addr):
         self.recv_lock.acquire()
         recv_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         recv_socket.bind((HOST, PORT + 3))
@@ -418,7 +420,7 @@ class Server:
         size = int(data.decode())
         recv_socket.sendto("Size Received".encode(), addr)
         
-        with open(f".files/{filename}", "w+") as f:
+        with open(f"{dest_filename}", "w+") as f:
             while size > 0: 
                 data, _ = recv_socket.recvfrom(SIZE)
                 f.write(data.decode())
@@ -431,28 +433,28 @@ class Server:
 
     # This will also run on a thread, hosted on PORT + 2
     # Assumptions: local filename does exist, also that this is routed through the leader
-    def send_file(self, local_filename, sdfs_filename, target):
+    def send_file(self, source_filename, dest_filename, target):
         self.send_lock.acquire()
         send_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         send_socket.bind((HOST, PORT + 2))
         recv_addr = (target, PORT + 3)
 
         # Send SDFS_filename to receiver, wait for ACK
-        query = [utils.SDFS_Type.RECEIVE_FILE, HOST, local_filename, sdfs_filename]
+        query = [utils.SDFS_Type.RECEIVE_FILE, HOST, source_filename, dest_filename]
         send_socket.sendto(json.dumps(query).encode(), (target, PORT + 1))
         data, _ = send_socket.recvfrom(SIZE)
         msg = data.decode()
         # print(msg)
 
         # Send the size to the target, wait for ACK
-        size = os.path.getsize(local_filename)
+        size = os.path.getsize(source_filename)
         send_socket.sendto(str(size).encode(), recv_addr)
         data, _ = send_socket.recvfrom(SIZE)
         msg = data.decode()
         # print(msg)
         
         # Send the data to the target, wait for ACK
-        with open(local_filename, "r") as f:
+        with open(source_filename, "r") as f:
             send_socket.sendto(f.read().encode(), recv_addr)
         data, _ = send_socket.recvfrom(SIZE)
         msg = data.decode()
@@ -464,8 +466,8 @@ class Server:
         
 
     # If you receive a route_put: you need to send a file to the given target
-    def route_put(self, local_filename, sdfs_filename, target):
-        t = threading.Thread(target = self.send_file, args = (local_filename, sdfs_filename, target))
+    def route(self, source_filename, dest_filename, target):
+        t = threading.Thread(target = self.send_file, args = (source_filename, dest_filename, target))
         t.start()
 
 
@@ -504,13 +506,26 @@ class Server:
 
             for i in replica_set:
                 internal_sdfs_filename = f"{sdfs_filename}-{current_version}"
-                q = [utils.SDFS_Type.ROUTE_PUT, i, local_filename, internal_sdfs_filename]
+                q = [utils.SDFS_Type.ROUTE, i, local_filename, f".files/{internal_sdfs_filename}"]
                 # Send a route back to the sender, telling it to send the file to the given nodes
                 sender_socket.sendto(json.dumps(q).encode(), (target, PORT + 1))
                 if i not in self.FilesByMachine:
                     self.FilesByMachine[i] = []
 
                 self.FilesByMachine[i].append(internal_sdfs_filename)
+
+
+    def get(self, local_filename, sdfs_filename, target):
+        outgoing_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        if HOST != self.INTRODUCER_HOST:
+            query = [utils.SDFS_Type.GET, target, local_filename, sdfs_filename]
+            outgoing_socket.sendto(json.dumps(query).encode(), (self.INTRODUCER_HOST, PORT + 1))
+        else:
+            version = len(self.MachinesByFile[sdfs_filename])
+            replica_node = utils.elem(self.MachinesByFile[sdfs_filename][version]) # gets a machine with the replica on it, simply need to route
+            query = [utils.SDFS_Type.ROUTE, target, f".files/{sdfs_filename}-{version}", local_filename]
+            outgoing_socket.sendto(json.dumps(query).encode(), (replica_node, PORT + 1))
+
 
     def shell(self):
         print("""Please use the following codes for the below functionalities:\n
@@ -537,7 +552,12 @@ class Server:
                 sdfs_filename = input("Enter SDFS filename: ")
                 self.put(local_filename, sdfs_filename, HOST)
             elif input_str == "2":
-                pass
+                sdfs_filename = input("Enter SDFS filename: ")
+                if not sdfs_filename in self.MachinesByFile:
+                    print("file does not exist in the system! please try again")
+                    continue
+                local_filename = input("Enter local filename: ")
+                self.get(local_filename, sdfs_filename, HOST)
             elif input_str == "3":
                 pass
             elif input_str == "4":

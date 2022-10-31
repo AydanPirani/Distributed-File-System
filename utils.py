@@ -25,8 +25,7 @@ class SDFS_Type:
     SEND_FILE = "Send_File"
     RECEIVE_FILE = "Receive_File"
     FILES = "Files"
-    ROUTE_PUT = "Route_Put"
-    ROUTE_GET = "Route_Get"
+    ROUTE = "Route"
     UPDATE_PROCESS = "Update_Process"
 
 class Field:
