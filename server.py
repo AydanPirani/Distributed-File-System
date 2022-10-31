@@ -381,6 +381,7 @@ class Server:
                 data, _ = recv_socket.recvfrom(SIZE)
                 f.write(data.decode())
                 size -= len(data)
+                print(size)
         recv_socket.sendto("File received".encode(), addr)
         recv_socket.close()
         self.recv_lock.release()
@@ -399,6 +400,7 @@ class Server:
         send_socket.sendto(json.dumps(query).encode(), (target, PORT + 1))
         data, _ = send_socket.recvfrom(SIZE)
         msg = data.decode()
+        print(msg)
 
         # Send the size to the target, wait for ACK
         size = os.path.getsize(local_filename)
@@ -412,6 +414,7 @@ class Server:
             send_socket.sendto(f.read().encode(), recv_addr)
         data, _ = send_socket.recvfrom(SIZE)
         msg = data.decode()
+        print(msg)
 
         send_socket.close()
         self.send_lock.release()
