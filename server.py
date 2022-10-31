@@ -558,9 +558,9 @@ class Server:
             elif input_str == "3":
                 pass
             elif input_str == "4":
-                pass
+                print(list(self.MachinesByFile.keys()))
             elif input_str == "5":
-                pass
+                print(self.FilesByMachine.get(HOST, []))
             elif input_str == "6":
                 pass
             else:
