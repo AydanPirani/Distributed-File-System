@@ -500,13 +500,22 @@ class Server:
             replica_set = get_replica_set()
             print(f"replica set = {replica_set}")
 
-            # TODO: Given a replica set, route protocol instructions to sender, and work from there
+            current_version = len(self.MachinesByFile[sdfs_filename]) + 1
+            self.MachinesByFile[sdfs_filename][current_version] = replica_set
+
             for i in replica_set:
-                q = [utils.SDFS_Type.ROUTE_PUT, i, local_filename, sdfs_filename]
+                internal_sdfs_filename = f"{sdfs_filename}-{current_version}"
+                q = [utils.SDFS_Type.ROUTE_PUT, i, local_filename, internal_sdfs_filename]
                 print(f"sending query {q} to {target}:{PORT + 1}")
                 # Send a route back to the sender, telling it to send the file to the given nodes
                 sender_socket.sendto(json.dumps(q).encode(), (target, PORT + 1))
-            # TODO: Update local file directory structure
+                if i not in self.FilesByMachine:
+                    self.FilesByMachine[i] = []
+
+                self.FilesByMachine[i].append(internal_sdfs_filename)
+
+            print(self.FilesByMachine)
+            print(self.MachinesByFile)
             
 
     def shell(self):
