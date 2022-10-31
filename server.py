@@ -127,7 +127,7 @@ class Server:
                 print(e)
 
 
-    def receiver_program(self):
+    def detector_program(self):
         '''
         Handles receives in different situations: PING, PONG and JOIN
         When reveived PING: update membership list and send PONG back to the sender_host
@@ -383,7 +383,7 @@ class Server:
         '''
         logging.info('Enter run() function.')
         t_monitor = threading.Thread(target=self.monitor_program)
-        t_receiver = threading.Thread(target=self.receiver_program)
+        t_detector = threading.Thread(target=self.detector_program)
         t_shell = threading.Thread(target=self.shell)
         # t_sender = threading.Thread(target=self.send_ping)
         t_server_mp1 = threading.Thread(target = mp1_server.server_program)
@@ -394,16 +394,16 @@ class Server:
             threads.append(t_send)
             i += 1
         t_monitor.start()
-        t_receiver.start()
+        t_detector.start()
         t_shell.start()
         # t_sender.start()
         t_server_mp1.start()
         for t in threads:
             t.start()
         t_monitor.join()
-        t_receiver.join()
+        t_detector.join()
         t_shell.join()
-        t_sender.join()
+        # t_sender.join()
         t_server_mp1.join()
         for t in threads:
             t.join()
