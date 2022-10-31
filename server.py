@@ -278,13 +278,10 @@ class Server:
 
 
     def assignLeader(self):
-        maximum = 0
         for node in self.MembershipList:
             # check new vs running? 
-            if (self.MembershipList[node][1] != utils.Status.LEAVE and node > maximum):
-                maximum = node
-                
-        self.INTRODUCER_HOST = maximum
+            if (self.MembershipList[node][1] != utils.Status.LEAVE):
+                self.INTRODUCER_HOST = node
         
 
     def monitor_program(self):
