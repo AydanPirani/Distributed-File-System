@@ -11,6 +11,8 @@ import socket
 import threading
 import utils
 
+import random
+
 from logging.handlers import RotatingFileHandler
 
 import mp1_client
@@ -253,10 +255,10 @@ class Server:
         for node in self.MembershipList:
             # check new vs running? 
             if (self.MembershipList[node][1] != utils.Status.LEAVE and node > maximum):
-                self.INTRODUCER_HOST = node
-                return
+                maximum = node
+                
+        self.INTRODUCER_HOST = maximum
         
-
 
     def monitor_program(self):
         '''
@@ -282,7 +284,7 @@ class Server:
                             self.MembershipList[hostname] = (value[0], utils.Status.LEAVE)
                             #if intro 
 
-                            if(HOST == INTRODUCER_HOST):
+                            if(HOST == self.INTRODUCER_HOST):
                                 # fix -> check if the newNode is status leave, if it is, choose new random node
                                 newReplicaNodeHost, newReplicaNodeValue = random.choice(list(self.MembershipList.values()))
                                 # newReplicaNode = random.randint(0, len(self.MembershipList))
@@ -350,11 +352,30 @@ class Server:
     def put(self, local_filename, sdfs_filename):
         query = f"in put! local={local_filename}, sdfs={sdfs_filename}"
         sender_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        if HOST == self.INTRODUCER_HOST:
-            print(f"in leader! query={query}")
+        if HOST != self.INTRODUCER_HOST:
+            sender_socket.send(query.encode(), (self.INTRODUCER_HOST, PORT + 1))
         else:
-            sender_socket.send(query.encode(), (INTRODUCER_HOST, PORT + 1))
+            print(f"in leader! query={query}")
+            N = len(self.MembershipList)
+            
+            # Generate the next node that isn't dead, given a certain offset from the memebrship list
+            def get_next_alive_node(start):
+                keys = list(self.MembershipList.keys())
 
+                for i in range(len(keys)):
+                    idx = (i + start) % len(keys)
+                    key = keys[idx]
+                    if self.MembershipList[key][1] != utils.Status.LEAVE:
+                        return key
+
+            # Randomized to evenly distribute the node progress
+            n1 = get_next_alive_node(random.randrange(N))
+            n2 = get_next_alive_node(random.randrange(N))
+            n3 = get_next_alive_node(random.randrange(N))
+
+            replica_set = set([n1, n2, n3])
+            print(f"replica set = {replica_set}")
+            
 
     def shell(self):
         print("""Please use the following codes for the below functionalities:\n
