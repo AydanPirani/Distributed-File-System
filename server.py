@@ -48,6 +48,7 @@ class Server:
         self.last_update = {}
         self.fileStructure = dict()
 
+
     def join(self):
         '''
         Contacts the introducer that the process will join the group and uptate its status.
@@ -62,17 +63,19 @@ class Server:
         self.MembershipList[HOST] = (timestamp, utils.Status.RUNNING)
         join_logger.info("Encounter after before:")
         join_logger.info(self.MembershipList)
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        outgoing_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        # print(f"in join! host={HOST}, introducer={utils.INTRODUCER_HOST}")
         if HOST != utils.INTRODUCER_HOST:
             # send a message that this node wants to join to the introducer
             join_msg = [utils.Type.JOIN, HOST, self.MembershipList[HOST]]
-            s.sendto(json.dumps(join_msg).encode(), (utils.INTRODUCER_HOST, PORT))
+            outgoing_socket.sendto(json.dumps(join_msg).encode(), (utils.INTRODUCER_HOST, PORT))
         else:
             print("This is introducer host!")
 
             for h in self.MembershipList:
                 join_msg = [utils.Type.FILES, HOST, self.fileStructure]
-                s.sendto(json.dumps(join_msg).encode(), (h, PORT))
+                outgoing_socket.sendto(json.dumps(join_msg).encode(), (h, PORT))
+
 
     def send_ping(self, host):
         '''
@@ -81,7 +84,7 @@ class Server:
         return: None
         '''
         print("sender started")
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        outgoing_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         while True:
             time.sleep(0.3)
             # if the host to send to is not in the MembershipList/leaving or if the current HOST is not leaving, don't ping
@@ -100,7 +103,7 @@ class Server:
                 
                 # send ping with curr HOST, MembershipList
                 ping_msg = [utils.Type.PING, HOST, self.MembershipList]
-                s.sendto(json.dumps(ping_msg).encode(), (host, PORT))
+                outgoing_socket.sendto(json.dumps(ping_msg).encode(), (host, PORT))
                 # update the last updated time of the last host the info was sent to 
                 if host in self.MembershipList and host not in self.last_update:
                     self.time_lock.acquire()
@@ -110,6 +113,7 @@ class Server:
                 self.ml_lock.release()
             except Exception as e:
                 print(e)
+
 
     def receiver_program(self):
         '''
@@ -121,8 +125,11 @@ class Server:
         return: None
         '''
         print("receiver started")
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.bind((HOST, PORT))
+        detection_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        detection_socket.bind((HOST, PORT))
+
+        
+
         recv_logger.info('receiver program started')
         while True:
             try:
@@ -130,7 +137,7 @@ class Server:
                 if self.MembershipList[HOST][1] == utils.Status.LEAVE:
                     recv_logger.info("skip receiver program since " + HOST + " is leaved")
                     continue
-                data, addr = s.recvfrom(4096)
+                data, addr = detection_socket.recvfrom(4096)
                 recv_logger.info("connection from: " + str(addr) + " with data: " + data.decode())
                 if data:
                     request = data.decode()
@@ -185,7 +192,7 @@ class Server:
                         # send a pong back to the request node
                         pong = [utils.Type.PONG, HOST, self.MembershipList[HOST]]
                         
-                        s.sendto(json.dumps(pong).encode(), (sender_host, PORT))
+                        detection_socket.sendto(json.dumps(pong).encode(), (sender_host, PORT))
 
                     elif request_type == utils.Type.PONG:
                         recv_logger.info("Encounter PONG before:")
@@ -202,6 +209,7 @@ class Server:
                         recv_logger.info(json.dumps(self.MembershipList))
                     elif request_type == utils.Type.SEND:
                         # retrieve file and send to sender_host(newReplicaNodeHost)
+                        pass
                     elif request_type == utils.Type.FILES:
                         # retrieve file and send to sender_host(newReplicaNodeHost)
                         self.fileStructure = request_membership
@@ -212,7 +220,9 @@ class Server:
             except Exception as e:
                 print(e)
 
+
     def assignLeader(self):
+        global INTRODUCER_HOST
         maximum = 0
         #get_all_hosts()
         for node in self.MembershipList.keys():
@@ -229,7 +239,7 @@ class Server:
         return: None
         '''
         print("monitor started")
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        detection_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         while True:
             try:
                 self.time_lock.acquire()
@@ -259,9 +269,9 @@ class Server:
                                             fileContainingReplica = fileName[version][0]
                                             # send a message to fileContainingReplica telling it to send its versioned file to newReplicaNode
                                             join_msg = [utils.Type.SEND, newReplicaNodeHost, version]
-                                            # todo: change port?
+                                            # TODO: Ensure that we have another socket to listen
                                             # print("sending", join_msg)
-                                            s.sendto(json.dumps(join_msg).encode(), (fileContainingReplica, PORT+1))
+                                            detection_socket.sendto(json.dumps(join_msg).encode(), (fileContainingReplica, PORT+1))
                                             # add a new request_type for this^?
                             
                             monitor_logger.info("Encounter timeout after:")
@@ -289,6 +299,7 @@ class Server:
         print(self.MembershipList)
         self.time_lock.release()
 
+
     def print_membership_list(self):
         '''
         Print current membership list
@@ -298,6 +309,7 @@ class Server:
         
         print(self.MembershipList)
        
+
     def print_self_id(self):
         '''
         Print self's id
@@ -307,6 +319,7 @@ class Server:
        
         print(IP + "#" + self.MembershipList[HOST][0])
         
+
     def shell(self):
         print("Welcome to the interactive shell for CS425 MP2. You may press 1/2/3/4 for below functionalities.\n"
               "1. list_mem: list the membership list\n"
@@ -342,6 +355,7 @@ class Server:
                 t.join()
             else:
                 print("Invalid input. Please try again")
+
 
     def run(self):
         '''
