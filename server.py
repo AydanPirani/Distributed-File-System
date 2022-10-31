@@ -21,6 +21,7 @@ import mp1_server
 HOST = socket.gethostname()
 IP = socket.gethostbyname(HOST)
 PORT = 23333
+SIZE = 4096
 
 # So you send pings so that the nodes that you've pinged update their memebership list at the value of the pinging node 
 # and so that they update their membership lists with all the extra values of the pinging nodes membership list
@@ -57,6 +58,9 @@ class Server:
         self.last_update = {}
         self.fileStructure = dict()
         self.INTRODUCER_HOST = utils.INTRODUCER_HOST
+
+        self.send_lock = threading.Lock()
+        self.recv_lock = threading.Lock()
 
 
     def join(self):
@@ -141,11 +145,14 @@ class Server:
         while True:
             # print("in recv!")
             try:
-                data, addr = sdfs_socket.recvfrom(4096)
+                data, addr = sdfs_socket.recvfrom(SIZE)
                 if data:
                     arg, target, local_filename, sdfs_filename = json.loads(data.decode())
                     if arg == utils.SDFS_Type.ROUTE_PUT:
                         self.route_put(local_filename, sdfs_filename, target)
+                    if arg == utils.SDFS_Type.RECEIVE_FILE:
+                        thread = threading.Thread(target = self.receive_file, args = (sdfs_filename, (target, PORT + 2)))
+                        thread.start()
             except:
                 pass
 
@@ -172,7 +179,7 @@ class Server:
                 if self.MembershipList[HOST][1] == utils.Status.LEAVE:
                     recv_logger.info("skip receiver program since " + HOST + " is leaved")
                     continue
-                data, addr = detection_socket.recvfrom(4096)
+                data, addr = detection_socket.recvfrom(SIZE)
                 recv_logger.info("connection from: " + str(addr) + " with data: " + data.decode())
                 if data:
                     request = data.decode()
@@ -354,10 +361,67 @@ class Server:
        
         print(IP + "#" + self.MembershipList[HOST][0])
         
+    # This will run on a thread, IF the receiver gets a SEND/GET request
+    # Note that addr is the address of PORT + 2
+    def receive_file(self, filename, addr):
+        self.recv_lock.acquire()
+        recv_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        recv_socket.bind((HOST, PORT + 3))
+
+        # Send ACK to sender, indicating ready to download
+        recv_socket.sendto("Ready".encode(), addr)
+
+        # Receive the size from the sender
+        data, _ = recv_socket.recvfrom(SIZE)
+        size = int(data.decode())
+        recv_socket.sendto("Size Received".encode(), addr)
+        
+        with open(f".files/{filename}", "w+") as f:
+            while size > 0: 
+                data, _ = recv_socket.recvfrom(SIZE)
+                f.write(data.decode())
+                size -= len(data)
+        recv_socket.sendto("File received".encode(), addr)
+        recv_socket.close()
+        self.recv_lock.release()
+        return
+
+    # This will also run on a thread, hosted on PORT + 2
+    # Assumptions: local filename does exist, also that this is routed through the leader
+    def send_file(self, local_filename, sdfs_filename, target):
+        self.send_lock.acquire()
+        send_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        send_socket.bind((HOST, PORT + 2))
+        recv_addr = (target, PORT + 3)
+
+        # Send SDFS_filename to receiver, wait for ACK
+        query = [utils.SDFS_Type.RECEIVE_FILE, HOST, local_filename, sdfs_filename]
+        send_socket.sendto(json.dumps(query).encode(), (target, PORT + 1))
+        data, _ = send_socket.recvfrom(SIZE)
+        msg = data.decode()
+
+        # Send the size to the target, wait for ACK
+        size = os.path.getsize(local_filename)
+        send_socket.sendto(str(size).encode(), recv_addr)
+        data, _ = send_socket.recvfrom(SIZE)
+        msg = data.decode()
+        print(msg)
+        
+        # Send the data to the target, wait for ACK
+        with open(local_filename, "r") as f:
+            send_socket.sendto(f.read().encode(), recv_addr)
+        data, _ = send_socket.recvfrom(SIZE)
+        msg = data.decode()
+
+        send_socket.close()
+        self.send_lock.release()
+        return
+        
+
     # If you receive a route_put: you need to send a file to the given target
     def route_put(self, local_filename, sdfs_filename, target):
-        
-        pass
+        t = threading.Thread(target = self.send_file, args = (local_filename, sdfs_filename, target))
+        t.start()
 
     def put(self, local_filename, sdfs_filename, target):
         sender_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -392,8 +456,6 @@ class Server:
                 print(f"sending query {q} to {i}:{PORT + 1}")
                 # Send a route back to the sender, telling it to send the file to the given nodes
                 sender_socket.sendto(json.dumps(q).encode(), (target, PORT + 1))
-
-
             # TODO: Update local file directory structure
             
 

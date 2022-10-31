@@ -18,10 +18,12 @@ class Type:
     SEND = "Send"
     FILES = "Files"
 
+# TODO: Change membership list SEND to be more descriptive
 class SDFS_Type:
     PUT = "Put"
     GET = "Get"
-    SEND = "Send"
+    SEND_FILE = "Send_File"
+    RECEIVE_FILE = "Receive_File"
     FILES = "Files"
     ROUTE_PUT = "Route_Put"
     ROUTE_GET = "Route_Get"
