@@ -127,6 +127,18 @@ class Server:
                 print(e)
 
 
+    def sdfs_program(self):
+        print("sdfs receiver started")
+
+        sdfs_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sdfs_socket.bind((HOST, PORT + 1))
+
+        while True:
+                data, addr = sdfs_socket.recvfrom(4096)
+                print("connection from: " + str(addr) + " with data: " + data.decode())
+
+
+
     def detector_program(self):
         '''
         Handles receives in different situations: PING, PONG and JOIN
@@ -136,7 +148,7 @@ class Server:
         
         return: None
         '''
-        print("receiver started")
+        print("detector receiver started")
         detection_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         detection_socket.bind((HOST, PORT))
 
@@ -384,6 +396,7 @@ class Server:
         logging.info('Enter run() function.')
         t_monitor = threading.Thread(target=self.monitor_program)
         t_detector = threading.Thread(target=self.detector_program)
+        t_sdfs = threading.Thread(target=self.sdfs_program)
         t_shell = threading.Thread(target=self.shell)
         # t_sender = threading.Thread(target=self.send_ping)
         t_server_mp1 = threading.Thread(target = mp1_server.server_program)
@@ -403,6 +416,7 @@ class Server:
         t_monitor.join()
         t_detector.join()
         t_shell.join()
+        t_sdfs.join()
         # t_sender.join()
         t_server_mp1.join()
         for t in threads:
