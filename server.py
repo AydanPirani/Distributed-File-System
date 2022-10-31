@@ -2,6 +2,8 @@ import datetime
 import time
 
 import os
+import shutil
+
 import json
 import logging
 
@@ -64,6 +66,11 @@ class Server:
         timestamp = str(int(time.time()))
         join_logger.info("Encounter join before:")
         join_logger.info(self.MembershipList)
+
+        # Clear the files directory upon joining, and re-generate the directory
+        shutil.rmtree(".files", ignore_errors=True)
+        os.mkdir(".files")
+
         # change the status to running when it sends a message to the introducer or when it is introducer
         self.MembershipList[HOST] = (timestamp, utils.Status.RUNNING)
         join_logger.info("Encounter after before:")
@@ -324,9 +331,11 @@ class Server:
        
         print(IP + "#" + self.MembershipList[HOST][0])
         
+
     def put(self, local_filename, sdfs_filename):
         print(f"in put! local={local_filename}, sdfs={sdfs_filename}")
         pass
+
 
     def shell(self):
         print("""Please use the following codes for the below functionalities:\n
