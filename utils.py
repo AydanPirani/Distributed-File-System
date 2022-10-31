@@ -10,12 +10,21 @@ class Status:
     NEW = 'NEW'
     RUNNING = 'RUNNING'
     LEAVE = 'LEAVE'
+
 class Type:
     PING = "Ping"
     PONG = "Pong"
     JOIN = "Join"
     SEND = "Send"
     FILES = "Files"
+
+class SDFS_Type:
+    PUT = "Put"
+    GET = "Get"
+    SEND = "Send"
+    FILES = "Files"
+    ROUTE_PUT = "Route_Put"
+    ROUTE_GET = "Route_Get"
 
 class Field:
     TYPE = "Type"

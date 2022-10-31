@@ -134,12 +134,18 @@ class Server:
         print("sdfs receiver started")
 
         sdfs_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sdfs_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        print(PORT)
         sdfs_socket.bind((HOST, PORT + 1))
 
         while True:
+            # print("in recv!")
             try:
                 data, addr = sdfs_socket.recvfrom(4096)
-                print("connection from: " + str(addr) + " with data: " + data.decode())
+                if data:
+                    arg, target, local_filename, sdfs_filename = json.loads(data.decode())
+                    if arg == utils.SDFS_Type.ROUTE_PUT:
+                        self.route_put(local_filename, sdfs_filename, target)
             except:
                 pass
 
@@ -348,14 +354,18 @@ class Server:
        
         print(IP + "#" + self.MembershipList[HOST][0])
         
+    # If you receive a route_put: you need to send a file to the given target
+    def route_put(self, local_filename, sdfs_filename, target):
+        
+        pass
 
-    def put(self, local_filename, sdfs_filename):
-        query = f"in put! local={local_filename}, sdfs={sdfs_filename}"
+    def put(self, local_filename, sdfs_filename, target):
         sender_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         if HOST != self.INTRODUCER_HOST:
-            sender_socket.send(query.encode(), (self.INTRODUCER_HOST, PORT + 1))
+            # Reroute the put request to the leader
+            query = [utils.SDFS_Type.PUT, target, local_filename, sdfs_filename]
+            sender_socket.send(json.dumps(query).encode(), (self.INTRODUCER_HOST, PORT + 1))
         else:
-            print(f"in leader! query={query}")
             N = len(self.MembershipList)
             
             # Generate the next node that isn't dead, given a certain offset from the memebrship list
@@ -375,6 +385,16 @@ class Server:
 
             replica_set = set([n1, n2, n3])
             print(f"replica set = {replica_set}")
+
+            # TODO: Given a replica set, route protocol instructions to sender, and work from there
+            for i in replica_set:
+                q = [utils.SDFS_Type.ROUTE_PUT, i, local_filename, sdfs_filename]
+                print(f"sending query {q} to {i}:{PORT + 1}")
+                # Send a route back to the sender, telling it to send the file to the given nodes
+                sender_socket.sendto(json.dumps(q).encode(), (target, PORT + 1))
+
+
+            # TODO: Update local file directory structure
             
 
     def shell(self):
@@ -400,7 +420,7 @@ class Server:
                     print("local file does not exist! please try again")
                     continue
                 sdfs_filename = input("Enter SDFS filename: ")
-                self.put(local_filename, sdfs_filename)
+                self.put(local_filename, sdfs_filename, HOST)
             elif input_str == "2":
                 pass
             elif input_str == "3":
@@ -436,6 +456,7 @@ class Server:
             i += 1
         t_monitor.start()
         t_detector.start()
+        t_sdfs.start()
         t_shell.start()
         # t_sender.start()
         t_server_mp1.start()
