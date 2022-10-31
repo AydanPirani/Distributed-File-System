@@ -56,8 +56,8 @@ class Server:
         self.ml_lock = threading.Lock()
         # record the time current process receives last ack from its neighbors
         self.last_update = {}
-        self.MachinesByFile = {}
-        self.FilesByMachine = {}
+        self.MachinesByFile = {} #dict, key = sdfs_name, value = dict (key = version, value = set of machines)
+        self.FilesByMachine = {} #dict, key = hostname, value = INTERNAL sdfs_name
         self.INTRODUCER_HOST = utils.INTRODUCER_HOST
 
         self.send_lock = threading.Lock()
@@ -141,7 +141,6 @@ class Server:
 
         sdfs_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sdfs_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        print(PORT)
         sdfs_socket.bind((HOST, PORT + 1))
 
         while True:
@@ -407,7 +406,6 @@ class Server:
     # This will run on a thread, IF the receiver gets a SEND/GET request
     # Note that addr is the address of PORT + 2
     def receive_file(self, filename, addr):
-        print("in receive file!")
         self.recv_lock.acquire()
         recv_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         recv_socket.bind((HOST, PORT + 3))
@@ -425,7 +423,6 @@ class Server:
                 data, _ = recv_socket.recvfrom(SIZE)
                 f.write(data.decode())
                 size -= len(data)
-                print(size)
         recv_socket.sendto("File received".encode(), addr)
         recv_socket.close()
         self.recv_lock.release()
@@ -499,7 +496,6 @@ class Server:
                 return replica_set
 
             replica_set = get_replica_set()
-            print(f"replica set = {replica_set}")
 
             if sdfs_filename not in self.MachinesByFile:
                 self.MachinesByFile[sdfs_filename] = {}
@@ -509,17 +505,12 @@ class Server:
             for i in replica_set:
                 internal_sdfs_filename = f"{sdfs_filename}-{current_version}"
                 q = [utils.SDFS_Type.ROUTE_PUT, i, local_filename, internal_sdfs_filename]
-                print(f"sending query {q} to {target}:{PORT + 1}")
                 # Send a route back to the sender, telling it to send the file to the given nodes
                 sender_socket.sendto(json.dumps(q).encode(), (target, PORT + 1))
                 if i not in self.FilesByMachine:
                     self.FilesByMachine[i] = []
 
                 self.FilesByMachine[i].append(internal_sdfs_filename)
-
-            print(self.FilesByMachine)
-            print(self.MachinesByFile)
-            
 
     def shell(self):
         print("""Please use the following codes for the below functionalities:\n

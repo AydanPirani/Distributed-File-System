@@ -27,6 +27,7 @@ class SDFS_Type:
     FILES = "Files"
     ROUTE_PUT = "Route_Put"
     ROUTE_GET = "Route_Get"
+    UPDATE_PROCESS = "Update_Process"
 
 class Field:
     TYPE = "Type"
