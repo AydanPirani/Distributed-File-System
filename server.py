@@ -54,6 +54,7 @@ class Server:
         # record the time current process receives last ack from its neighbors
         self.last_update = {}
         self.fileStructure = dict()
+        self.INTRODUCER_HOST = utils.INTRODUCER_HOST
 
 
     def join(self):
@@ -77,10 +78,10 @@ class Server:
         join_logger.info(self.MembershipList)
         outgoing_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         # print(f"in join! host={HOST}, introducer={utils.INTRODUCER_HOST}")
-        if HOST != utils.INTRODUCER_HOST:
+        if HOST != self.INTRODUCER_HOST:
             # send a message that this node wants to join to the introducer
             join_msg = [utils.Type.JOIN, HOST, self.MembershipList[HOST]]
-            outgoing_socket.sendto(json.dumps(join_msg).encode(), (utils.INTRODUCER_HOST, PORT))
+            outgoing_socket.sendto(json.dumps(join_msg).encode(), (self.INTRODUCER_HOST, PORT))
         else:
             print("This is introducer host!")
 
@@ -134,9 +135,11 @@ class Server:
         sdfs_socket.bind((HOST, PORT + 1))
 
         while True:
+            try:
                 data, addr = sdfs_socket.recvfrom(4096)
                 print("connection from: " + str(addr) + " with data: " + data.decode())
-
+            except:
+                pass
 
 
     def detector_program(self):
@@ -182,7 +185,7 @@ class Server:
                         recv_logger.info("Encounter join after:")
                         recv_logger.info(json.dumps(self.MembershipList))
                         
-                        if HOST == utils.INTRODUCER_HOST:
+                        if HOST == self.INTRODUCER_HOST:
                             recv_logger.info("introducer recv connection from new joiner: " + str(addr))
                             
                             join_msg = [utils.Type.JOIN, sender_host, self.MembershipList[sender_host]]
@@ -253,7 +256,7 @@ class Server:
             # check new vs running? 
             if (self.MembershipList[node][1] != utils.Status.LEAVE and node > maximum):
                 maximum = node
-        INTRODUCER_HOST = maximum
+        self.INTRODUCER_HOST = maximum
 
 
     def monitor_program(self):
@@ -279,6 +282,7 @@ class Server:
                             monitor_logger.info(json.dumps(self.MembershipList))
                             self.MembershipList[hostname] = (value[0], utils.Status.LEAVE)
                             #if intro 
+
                             if(HOST == INTRODUCER_HOST):
                                 # fix -> check if the newNode is status leave, if it is, choose new random node
                                 newReplicaNodeHost, newReplicaNodeValue = random.choice(list(self.MembershipList.values()))
@@ -345,8 +349,12 @@ class Server:
         
 
     def put(self, local_filename, sdfs_filename):
-        print(f"in put! local={local_filename}, sdfs={sdfs_filename}")
-        pass
+        query = f"in put! local={local_filename}, sdfs={sdfs_filename}"
+        sender_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        if HOST == self.INTRODUCER_HOST:
+            print(f"in leader! query={query}")
+        else:
+            sender_socket.send(query.encode(), (INTRODUCER_HOST, PORT + 1))
 
 
     def shell(self):
