@@ -1,11 +1,16 @@
-import socket
-import time
-import threading
-import json
-import utils
-import logging
-from logging.handlers import RotatingFileHandler
 import datetime
+import time
+
+import os
+import json
+import logging
+
+import socket
+import threading
+import utils
+
+from logging.handlers import RotatingFileHandler
+
 import mp1_client
 import mp1_server
 
@@ -319,40 +324,44 @@ class Server:
        
         print(IP + "#" + self.MembershipList[HOST][0])
         
+    def put(self, local_filename, sdfs_filename):
+        print(f"in put! local={local_filename}, sdfs={sdfs_filename}")
+        pass
 
     def shell(self):
-        print("Welcome to the interactive shell for CS425 MP2. You may press 1/2/3/4 for below functionalities.\n"
-              "1. list_mem: list the membership list\n"
-              "2. list_self: list self's id\n"
-              "3. join: command to join the group\n"
-              "4. leave: command to voluntarily leave the group (different from a failure, which will be Ctrl-C or kill)\n"
-              "5. grep: get into mp1 grep program"
-              )
+        print("""Please use the following codes for the below functionalities:\n
+                \r\t1. put: add a file to the file system
+                \r\t2. get: get a file from the file system
+                \r\t3. delete: delete a file from the file system
+                \r\t4. ls: print all files in the filesystem
+                \r\t5. store: list all files being stored in the machine
+                \r\t6. get-versions: get the last N versions of the file in the machine
+            """)
         
         time.sleep(1)
         # interactive shell
+        self.join()
         while True:
-            input_str = input("Please enter input: ")
+            input_str = input("Please enter command: ")
             if input_str == 'exit':
                 break
             if input_str == "1":
-                print("Selected list_mem")
-                self.print_membership_list()
+                local_filename = input("Enter local filename: ")
+                if not os.path.exists(local_filename):
+                    print("local file does not exist! please try again")
+                    continue
+                sdfs_filename = input("Enter SDFS filename: ")
+                self.put(local_filename, sdfs_filename)
             elif input_str == "2":
-                print("Selected list_self")
-                self.print_self_id()
+                pass
             elif input_str == "3":
-                print("Selected join the group")
-                self.join()
+                pass
             elif input_str == "4":
-                print("Selected voluntarily leave")
-                self.leave()
+                pass
             elif input_str == "5":
-                input_command = input("Please enter grep command: ")
-                c = mp1_client.Client(input_command)
-                t = threading.Thread(target = c.query)
-                t.start()
-                t.join()
+                pass
+            elif input_str == "6":
+                pass
             else:
                 print("Invalid input. Please try again")
 
