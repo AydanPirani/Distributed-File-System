@@ -249,14 +249,13 @@ class Server:
 
 
     def assignLeader(self):
-        global INTRODUCER_HOST
         maximum = 0
-        #get_all_hosts()
-        for node in self.MembershipList.keys():
+        for node in self.MembershipList:
             # check new vs running? 
             if (self.MembershipList[node][1] != utils.Status.LEAVE and node > maximum):
-                maximum = node
-        self.INTRODUCER_HOST = maximum
+                self.INTRODUCER_HOST = node
+                return
+        
 
 
     def monitor_program(self):
