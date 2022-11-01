@@ -1,4 +1,5 @@
 import datetime
+from multiprocessing.pool import RUN
 import time
 
 import os
@@ -17,11 +18,21 @@ from logging.handlers import RotatingFileHandler
 
 import mp1_client
 import mp1_server
+import signal
 
 HOST = socket.gethostname()
 IP = socket.gethostbyname(HOST)
-PORT = 23333
+PORT = 23120
 SIZE = 4096
+RUNNING = True
+
+import time
+ 
+# def handler(signum, frame):
+#     global RUNNING
+#     print("received!")
+#     RUNNING = False
+# signal.signal(signal.SIGINT, handler)
 
 # So you send pings so that the nodes that you've pinged update their memebership list at the value of the pinging node 
 # and so that they update their membership lists with all the extra values of the pinging nodes membership list
@@ -99,6 +110,7 @@ class Server:
 
 
     def send_ping(self, host):
+        global RUNNING
         '''
         Send PING to current process's neighbor using UDP. If the host is leaved/failed, then do nothing.
 
@@ -106,7 +118,7 @@ class Server:
         '''
         print("sender started")
         outgoing_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        while True:
+        while RUNNING:
             time.sleep(0.3)
             # if the host to send to is not in the MembershipList/leaving or if the current HOST is not leaving, don't ping
             if self.MembershipList[HOST][1] == utils.Status.LEAVE or host not in self.MembershipList or self.MembershipList[host][1] == utils.Status.LEAVE:
@@ -134,17 +146,17 @@ class Server:
                 self.ml_lock.release()
             except Exception as e:
                 print(e)
-
+        return 
 
     def sdfs_program(self):
-        print("sdfs receiver started")
+        global RUNNING
 
         sdfs_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sdfs_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sdfs_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+        sdfs_socket.setblocking(0)
         sdfs_socket.bind((HOST, PORT + 1))
-
-        while True:
-            # print("in recv!")
+        while RUNNING:
             try:
                 data, addr = sdfs_socket.recvfrom(SIZE)
                 if data:
@@ -167,11 +179,16 @@ class Server:
                     elif arg == utils.SDFS_Type.RECEIVE_FILE:
                         thread = threading.Thread(target = self.receive_file, args = (sdfs_filename, (target, PORT + 2)))
                         thread.start()
+                    
+                    self.assignLeader()
             except:
                 pass
+        
+        return
 
 
     def detector_program(self):
+        global RUNNING
         '''
         Handles receives in different situations: PING, PONG and JOIN
         When reveived PING: update membership list and send PONG back to the sender_host
@@ -187,7 +204,7 @@ class Server:
         
 
         recv_logger.info('receiver program started')
-        while True:
+        while RUNNING:
             try:
                 # if LEAVE status, don't do anything
                 if self.MembershipList[HOST][1] == utils.Status.LEAVE:
@@ -278,10 +295,12 @@ class Server:
 
 
     def assignLeader(self):
-        for node in self.MembershipList:
+        keys = sorted(self.MembershipList.keys())
+        for node in keys:
             # check new vs running? 
             if (self.MembershipList[node][1] != utils.Status.LEAVE):
                 self.INTRODUCER_HOST = node
+        print(f"new leader={self.INTRODUCER_HOST}")
         
 
     def monitor_program(self):
@@ -290,9 +309,11 @@ class Server:
 
         return: None
         '''
+
+        global RUNNING
         print("monitor started")
         detection_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        while True:
+        while RUNNING:
             try:
                 self.time_lock.acquire()
                 
@@ -337,8 +358,12 @@ class Server:
             except Exception as e:
                 print(e)
 
+        return
+
     # simply updates the value at the current host to a LEAVE status
     def leave(self):
+        global RUNNING
+        RUNNING = False
         '''
         Mark current process as LEAVE status
 
@@ -379,23 +404,21 @@ class Server:
         outgoing_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         if HOST == utils.INTRODUCER_HOST:
             # Send a bunch of reroute messages
-
-            for f in self.FilesByMachine[target]:
+            for internal_f in self.FilesByMachine[target]:
                 # Iterate through each file in the deleted machine, and remove the machine from files
+                f, v = internal_f.split('-')
                 keys = self.MembershipList.keys()
-                self.MachinesByFile[f].remove(target) #Remove the machine from the dictionary, no longer in the file
+                self.MachinesByFile[f][v].remove(target) # Remove the machine from the dictionary, no longer in the file
 
                 N = len(keys)
                 offset = random.randrange(N)
                 for i in range(N):
                     new_replica = self.MembershipList[keys[(i + offset) % N]]
-                    old_replica = utils.elem(self.MachinesByFile[f])
+                    old_replica = utils.elem(self.MachinesByFile[f][v])
 
                     if new_replica[1] != utils.Status.LEAVE:
-                        q = [utils.SDFS_Type.ROUTE, new_replica, f, f".files/{f}"]
-                        print(f"sending query={q}")
-                        outgoing_socket.sendto(json.dumps(query).encode(), (old_replica, PORT + 1))
-
+                        q = [utils.SDFS_Type.ROUTE, new_replica, f, f".files/{internal_f}"]
+                        outgoing_socket.sendto(json.dumps(q).encode(), (old_replica, PORT + 1))
                         break
         else:
             query = [utils.SDFS_Type.UPDATE_PROCESS, target, "", ""]
@@ -525,23 +548,31 @@ class Server:
 
 
     def shell(self):
+        global RUNNING
         print("""Please use the following codes for the below functionalities:\n
-                \r\t1. put: add a file to the file system
-                \r\t2. get: get a file from the file system
-                \r\t3. delete: delete a file from the file system
-                \r\t4. ls: print all files in the filesystem
-                \r\t5. store: list all files being stored in the machine
-                \r\t6. get-versions: get the last N versions of the file in the machine
+                \r\t 1. put: add a file to the file system
+                \r\t 2. get: get a file from the file system
+                \r\t 3. delete: delete a file from the file system
+                \r\t 4. ls: print all files in the filesystem
+                \r\t 5. store: list all files being stored in the machine
+                \r\t 6. get-versions: get the last N versions of the file in the machine
+                \r\t 7. list_mem: list the membership list"
+                \r\t 8. list_self: list self's id"
+                \r\t 9. leave: command to voluntarily leave the group (different from a failure, which will be Ctrl-C or kill)"
+                \r\t10. grep: get into mp1 grep"
+
+
             """)
         
         time.sleep(1)
         # interactive shell
         self.join()
-        while True:
+        while RUNNING:
             input_str = input("Please enter command: ")
             if input_str == 'exit':
-                break
-            if input_str == "1":
+                RUNNING = False
+            elif input_str == "1":
+                print("Selected put")
                 local_filename = input("Enter local filename: ")
                 if not os.path.exists(local_filename):
                     print("local file does not exist! please try again")
@@ -549,6 +580,7 @@ class Server:
                 sdfs_filename = input("Enter SDFS filename: ")
                 self.put(local_filename, sdfs_filename, HOST)
             elif input_str == "2":
+                print("Selected get")
                 sdfs_filename = input("Enter SDFS filename: ")
                 if not sdfs_filename in self.MachinesByFile:
                     print("file does not exist in the system! please try again")
@@ -556,18 +588,31 @@ class Server:
                 local_filename = input("Enter local filename: ")
                 self.get(local_filename, sdfs_filename, HOST)
             elif input_str == "3":
+                print("Selected delete")
                 pass
             elif input_str == "4":
+                print("Selected ls")
                 print(list(self.MachinesByFile.keys()))
             elif input_str == "5":
+                print("Selected store")
                 print(self.FilesByMachine.get(HOST, []))
             elif input_str == "6":
                 pass
+            if input_str == "7":
+                print("Selected list_mem")
+                self.print_membership_list()
+            elif input_str == "8":
+                print("Selected list_self")
+                self.print_self_id()
+            elif input_str == "9":
+                print("Selected leave")
+                self.leave()
             else:
                 print("Invalid input. Please try again")
-
+        return
 
     def run(self):
+        global RUNNING
         '''
         run function starts the server
 
@@ -599,11 +644,13 @@ class Server:
         t_shell.join()
         t_sdfs.join()
         # t_sender.join()
-        t_server_mp1.join()
+        # t_server_mp1.join()
+        # print("post-mp1-server")
         for t in threads:
             t.join()
-
-
+        print("PROGRAM FINISHED. Please send Ctrl+C or Ctrl+Z to terminate.")
+        return
+    # exit(0)
 if __name__ == '__main__':
     s = Server()
     s.run()

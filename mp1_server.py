@@ -3,7 +3,7 @@ import re
 import os
 
 HOST = socket.gethostname()
-PORT = 20000
+PORT = 20001
 
 
 def grep(request):
@@ -50,6 +50,8 @@ def server_program():
     """
     print("[INFO]: MP1 server started")
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
     s.bind((HOST, PORT))
     s.listen()
 
