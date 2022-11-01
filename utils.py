@@ -1,6 +1,7 @@
 import re
 
-INTRODUCER_HOST = "fa22-cs425-3610.cs.illinois.edu"
+# INTRODUCER_HOST = "fa22-cs425-3610.cs.illinois.edu"
+INTRODUCER_HOST = "fa22-cs425-3601.cs.illinois.edu"
 
 # map < str: map <int: list> >
 fileStructure = None
@@ -9,12 +10,23 @@ class Status:
     NEW = 'NEW'
     RUNNING = 'RUNNING'
     LEAVE = 'LEAVE'
+
 class Type:
     PING = "Ping"
     PONG = "Pong"
     JOIN = "Join"
     SEND = "Send"
     FILES = "Files"
+
+# TODO: Change membership list SEND to be more descriptive
+class SDFS_Type:
+    PUT = "Put"
+    GET = "Get"
+    SEND_FILE = "Send_File"
+    RECEIVE_FILE = "Receive_File"
+    FILES = "Files"
+    ROUTE = "Route"
+    UPDATE_PROCESS = "Update_Process"
 
 class Field:
     TYPE = "Type"
@@ -46,5 +58,6 @@ def get_all_hosts():
         l.append("fa22-cs425-36%02d.cs.illinois.edu" % i)
     return l
 
-
-
+def elem(s):
+    return next(iter(s))
+    

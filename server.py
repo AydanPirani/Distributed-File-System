@@ -1,17 +1,38 @@
-import socket
-import time
-import threading
-import json
-import utils
-import logging
-from logging.handlers import RotatingFileHandler
 import datetime
+from multiprocessing.pool import RUN
+import time
+
+import os
+import shutil
+
+import json
+import logging
+
+import socket
+import threading
+import utils
+
+import random
+
+from logging.handlers import RotatingFileHandler
+
 import mp1_client
 import mp1_server
+import signal
 
 HOST = socket.gethostname()
 IP = socket.gethostbyname(HOST)
-PORT = 23333
+PORT = 23120
+SIZE = 4096
+RUNNING = True
+
+import time
+ 
+# def handler(signum, frame):
+#     global RUNNING
+#     print("received!")
+#     RUNNING = False
+# signal.signal(signal.SIGINT, handler)
 
 # So you send pings so that the nodes that you've pinged update their memebership list at the value of the pinging node 
 # and so that they update their membership lists with all the extra values of the pinging nodes membership list
@@ -46,7 +67,13 @@ class Server:
         self.ml_lock = threading.Lock()
         # record the time current process receives last ack from its neighbors
         self.last_update = {}
-        self.fileStructure = dict()
+        self.MachinesByFile = {} #dict, key = sdfs_name, value = dict (key = version, value = set of machines)
+        self.FilesByMachine = {} #dict, key = hostname, value = INTERNAL sdfs_name
+        self.INTRODUCER_HOST = utils.INTRODUCER_HOST
+
+        self.send_lock = threading.Lock()
+        self.recv_lock = threading.Lock()
+
 
     def join(self):
         '''
@@ -58,31 +85,40 @@ class Server:
         timestamp = str(int(time.time()))
         join_logger.info("Encounter join before:")
         join_logger.info(self.MembershipList)
+
+        # Clear the files directory upon joining, and re-generate the directory
+        shutil.rmtree(".files", ignore_errors=True)
+        os.mkdir(".files")
+
         # change the status to running when it sends a message to the introducer or when it is introducer
         self.MembershipList[HOST] = (timestamp, utils.Status.RUNNING)
         join_logger.info("Encounter after before:")
         join_logger.info(self.MembershipList)
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        if HOST != utils.INTRODUCER_HOST:
+        outgoing_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        # print(f"in join! host={HOST}, introducer={utils.INTRODUCER_HOST}")
+        if HOST != self.INTRODUCER_HOST:
             # send a message that this node wants to join to the introducer
             join_msg = [utils.Type.JOIN, HOST, self.MembershipList[HOST]]
-            s.sendto(json.dumps(join_msg).encode(), (utils.INTRODUCER_HOST, PORT))
+            outgoing_socket.sendto(json.dumps(join_msg).encode(), (self.INTRODUCER_HOST, PORT))
         else:
             print("This is introducer host!")
 
-            for h in self.MembershipList:
-                join_msg = [utils.Type.FILES, HOST, self.fileStructure]
-                s.sendto(json.dumps(join_msg).encode(), (h, PORT))
+            # TODO: Add implementation for this
+            # for h in self.MembershipList:
+            #     join_msg = [utils.Type.FILES, HOST, self.fileStructure]
+            #     outgoing_socket.sendto(json.dumps(join_msg).encode(), (h, PORT))
+
 
     def send_ping(self, host):
+        global RUNNING
         '''
         Send PING to current process's neighbor using UDP. If the host is leaved/failed, then do nothing.
 
         return: None
         '''
         print("sender started")
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        while True:
+        outgoing_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        while RUNNING:
             time.sleep(0.3)
             # if the host to send to is not in the MembershipList/leaving or if the current HOST is not leaving, don't ping
             if self.MembershipList[HOST][1] == utils.Status.LEAVE or host not in self.MembershipList or self.MembershipList[host][1] == utils.Status.LEAVE:
@@ -100,7 +136,7 @@ class Server:
                 
                 # send ping with curr HOST, MembershipList
                 ping_msg = [utils.Type.PING, HOST, self.MembershipList]
-                s.sendto(json.dumps(ping_msg).encode(), (host, PORT))
+                outgoing_socket.sendto(json.dumps(ping_msg).encode(), (host, PORT))
                 # update the last updated time of the last host the info was sent to 
                 if host in self.MembershipList and host not in self.last_update:
                     self.time_lock.acquire()
@@ -110,8 +146,49 @@ class Server:
                 self.ml_lock.release()
             except Exception as e:
                 print(e)
+        return 
 
-    def receiver_program(self):
+    def sdfs_program(self):
+        global RUNNING
+
+        sdfs_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sdfs_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sdfs_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+        sdfs_socket.setblocking(0)
+        sdfs_socket.bind((HOST, PORT + 1))
+        while RUNNING:
+            try:
+                data, addr = sdfs_socket.recvfrom(SIZE)
+                if data:
+                    query = json.loads(data.decode())
+                    if query[0] == utils.SDFS_Type.UPDATE_PROCESS:
+                        self.update_process(target)
+                        continue
+                    
+                    # TODO: Add in implementation to constantly send a file list around
+                    # if query[0] == utils.SDFS_Type.FILE_LIST:
+                    #     self.
+
+                    arg, target, local_filename, sdfs_filename = query
+                    if arg == utils.SDFS_Type.PUT:
+                        self.put(local_filename, sdfs_filename, target)
+                    elif arg == utils.SDFS_Type.GET:
+                        self.get(local_filename, sdfs_filename, target)
+                    elif arg == utils.SDFS_Type.ROUTE:
+                        self.route(local_filename, sdfs_filename, target)
+                    elif arg == utils.SDFS_Type.RECEIVE_FILE:
+                        thread = threading.Thread(target = self.receive_file, args = (sdfs_filename, (target, PORT + 2)))
+                        thread.start()
+                    
+                    self.assignLeader()
+            except:
+                pass
+        
+        return
+
+
+    def detector_program(self):
+        global RUNNING
         '''
         Handles receives in different situations: PING, PONG and JOIN
         When reveived PING: update membership list and send PONG back to the sender_host
@@ -120,17 +197,20 @@ class Server:
         
         return: None
         '''
-        print("receiver started")
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.bind((HOST, PORT))
+        print("detector receiver started")
+        detection_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        detection_socket.bind((HOST, PORT))
+
+        
+
         recv_logger.info('receiver program started')
-        while True:
+        while RUNNING:
             try:
                 # if LEAVE status, don't do anything
                 if self.MembershipList[HOST][1] == utils.Status.LEAVE:
                     recv_logger.info("skip receiver program since " + HOST + " is leaved")
                     continue
-                data, addr = s.recvfrom(4096)
+                data, addr = detection_socket.recvfrom(SIZE)
                 recv_logger.info("connection from: " + str(addr) + " with data: " + data.decode())
                 if data:
                     request = data.decode()
@@ -151,7 +231,7 @@ class Server:
                         recv_logger.info("Encounter join after:")
                         recv_logger.info(json.dumps(self.MembershipList))
                         
-                        if HOST == utils.INTRODUCER_HOST:
+                        if HOST == self.INTRODUCER_HOST:
                             recv_logger.info("introducer recv connection from new joiner: " + str(addr))
                             
                             join_msg = [utils.Type.JOIN, sender_host, self.MembershipList[sender_host]]
@@ -185,7 +265,7 @@ class Server:
                         # send a pong back to the request node
                         pong = [utils.Type.PONG, HOST, self.MembershipList[HOST]]
                         
-                        s.sendto(json.dumps(pong).encode(), (sender_host, PORT))
+                        detection_socket.sendto(json.dumps(pong).encode(), (sender_host, PORT))
 
                     elif request_type == utils.Type.PONG:
                         recv_logger.info("Encounter PONG before:")
@@ -202,9 +282,10 @@ class Server:
                         recv_logger.info(json.dumps(self.MembershipList))
                     elif request_type == utils.Type.SEND:
                         # retrieve file and send to sender_host(newReplicaNodeHost)
-                    elif request_type == utils.Type.FILES:
+                        pass
+                    # elif request_type == utils.Type.FILES:
                         # retrieve file and send to sender_host(newReplicaNodeHost)
-                        self.fileStructure = request_membership
+                        # self.fileStructure = request_membership
                         
                     else:
                         recv_logger.error("Unknown message type")
@@ -212,15 +293,15 @@ class Server:
             except Exception as e:
                 print(e)
 
-    def assignLeader(self):
-        maximum = 0
-        #get_all_hosts()
-        for node in self.MembershipList.keys():
-            # check new vs running? 
-            if (self.MembershipList[node][1] != utils.Status.LEAVE and node > maximum):
-                maximum = node
-        INTRODUCER_HOST = maximum
 
+    def assignLeader(self):
+        keys = sorted(self.MembershipList.keys())
+        for node in keys:
+            # check new vs running? 
+            if (self.MembershipList[node][1] != utils.Status.LEAVE):
+                self.INTRODUCER_HOST = node
+        print(f"new leader={self.INTRODUCER_HOST}")
+        
 
     def monitor_program(self):
         '''
@@ -228,9 +309,11 @@ class Server:
 
         return: None
         '''
+
+        global RUNNING
         print("monitor started")
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        while True:
+        detection_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        while RUNNING:
             try:
                 self.time_lock.acquire()
                 
@@ -245,24 +328,27 @@ class Server:
                             monitor_logger.info(json.dumps(self.MembershipList))
                             self.MembershipList[hostname] = (value[0], utils.Status.LEAVE)
                             #if intro 
-                            if(HOST == INTRODUCER_HOST):
-                                # fix -> check if the newNode is status leave, if it is, choose new random node
-                                newReplicaNodeHost, newReplicaNodeValue = random.choice(list(self.MembershipList.values()))
-                                # newReplicaNode = random.randint(0, len(self.MembershipList))
-                                while (newReplicaNodeValue[1] != utils.Status.LEAVE ):
-                                    newReplicaNodeHost, newReplicaNodeValue = random.choice(list(self.MembershipList.values()))
-                                for fileName in fileStructure.keys():
-                                    for version in fileName.keys():
-                                        if hostname in fileName[version]:
-                                            fileName[version].remove(hostname)
-                                            #pick another node in this list that has the versioned file 
-                                            fileContainingReplica = fileName[version][0]
-                                            # send a message to fileContainingReplica telling it to send its versioned file to newReplicaNode
-                                            join_msg = [utils.Type.SEND, newReplicaNodeHost, version]
-                                            # todo: change port?
-                                            # print("sending", join_msg)
-                                            s.sendto(json.dumps(join_msg).encode(), (fileContainingReplica, PORT+1))
-                                            # add a new request_type for this^?
+                            self.assignLeader()
+                            self.update_process(hostname)
+
+                            # if HOST == self.INTRODUCER_HOST:
+                            #     # fix -> check if the newNode is status leave, if it is, choose new random node
+                            #     newReplicaNodeHost, newReplicaNodeValue = random.choice(list(self.MembershipList.values()))
+                            #     # newReplicaNode = random.randint(0, len(self.MembershipList))
+                            #     while (newReplicaNodeValue[1] != utils.Status.LEAVE):
+                            #         newReplicaNodeHost, newReplicaNodeValue = random.choice(list(self.MembershipList.values()))
+                            #     for fileName in self.fileStructure.keys():
+                            #         for version in fileName.keys():
+                            #             if hostname in fileName[version]:
+                            #                 fileName[version].remove(hostname)
+                            #                 #pick another node in this list that has the versioned file 
+                            #                 fileContainingReplica = fileName[version][0]
+                            #                 # send a message to fileContainingReplica telling it to send its versioned file to newReplicaNode
+                            #                 join_msg = [utils.Type.SEND, newReplicaNodeHost, version]
+                            #                 # TODO: Ensure that we have another socket to listen
+                            #                 # print("sending", join_msg)
+                            #                 detection_socket.sendto(json.dumps(join_msg).encode(), (fileContainingReplica, PORT+1))
+                            #                 # add a new request_type for this^?
                             
                             monitor_logger.info("Encounter timeout after:")
                             monitor_logger.info(json.dumps(self.MembershipList))
@@ -272,8 +358,12 @@ class Server:
             except Exception as e:
                 print(e)
 
+        return
+
     # simply updates the value at the current host to a LEAVE status
     def leave(self):
+        global RUNNING
+        RUNNING = False
         '''
         Mark current process as LEAVE status
 
@@ -289,6 +379,7 @@ class Server:
         print(self.MembershipList)
         self.time_lock.release()
 
+
     def print_membership_list(self):
         '''
         Print current membership list
@@ -298,6 +389,7 @@ class Server:
         
         print(self.MembershipList)
        
+
     def print_self_id(self):
         '''
         Print self's id
@@ -306,44 +398,221 @@ class Server:
         '''
        
         print(IP + "#" + self.MembershipList[HOST][0])
+
+    
+    def update_process(self, target):
+        outgoing_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        if HOST == utils.INTRODUCER_HOST:
+            # Send a bunch of reroute messages
+            for internal_f in self.FilesByMachine[target]:
+                # Iterate through each file in the deleted machine, and remove the machine from files
+                f, v = internal_f.split('-')
+                keys = self.MembershipList.keys()
+                self.MachinesByFile[f][v].remove(target) # Remove the machine from the dictionary, no longer in the file
+
+                N = len(keys)
+                offset = random.randrange(N)
+                for i in range(N):
+                    new_replica = self.MembershipList[keys[(i + offset) % N]]
+                    old_replica = utils.elem(self.MachinesByFile[f][v])
+
+                    if new_replica[1] != utils.Status.LEAVE:
+                        q = [utils.SDFS_Type.ROUTE, new_replica, f, f".files/{internal_f}"]
+                        outgoing_socket.sendto(json.dumps(q).encode(), (old_replica, PORT + 1))
+                        break
+        else:
+            query = [utils.SDFS_Type.UPDATE_PROCESS, target, "", ""]
+            outgoing_socket.sendto(json.dumps(query).encode(), (utils.INTRODUCER_HOST, PORT + 1))
+
+
+    # This will run on a thread, IF the receiver gets a SEND/GET request
+    # Note that addr is the address of PORT + 2
+    def receive_file(self, dest_filename, addr):
+        self.recv_lock.acquire()
+        recv_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        recv_socket.bind((HOST, PORT + 3))
+
+        # Send ACK to sender, indicating ready to download
+        recv_socket.sendto("Ready".encode(), addr)
+
+        # Receive the size from the sender
+        data, _ = recv_socket.recvfrom(SIZE)
+        size = int(data.decode())
+        recv_socket.sendto("Size Received".encode(), addr)
         
+        with open(f"{dest_filename}", "w+") as f:
+            while size > 0: 
+                data, _ = recv_socket.recvfrom(SIZE)
+                f.write(data.decode())
+                size -= len(data)
+        recv_socket.sendto("File received".encode(), addr)
+        recv_socket.close()
+        self.recv_lock.release()
+
+        return
+
+    # This will also run on a thread, hosted on PORT + 2
+    # Assumptions: local filename does exist, also that this is routed through the leader
+    def send_file(self, source_filename, dest_filename, target):
+        self.send_lock.acquire()
+        send_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        send_socket.bind((HOST, PORT + 2))
+        recv_addr = (target, PORT + 3)
+
+        # Send SDFS_filename to receiver, wait for ACK
+        query = [utils.SDFS_Type.RECEIVE_FILE, HOST, source_filename, dest_filename]
+        send_socket.sendto(json.dumps(query).encode(), (target, PORT + 1))
+        data, _ = send_socket.recvfrom(SIZE)
+        msg = data.decode()
+        # print(msg)
+
+        # Send the size to the target, wait for ACK
+        size = os.path.getsize(source_filename)
+        send_socket.sendto(str(size).encode(), recv_addr)
+        data, _ = send_socket.recvfrom(SIZE)
+        msg = data.decode()
+        # print(msg)
+        
+        # Send the data to the target, wait for ACK
+        with open(source_filename, "r") as f:
+            send_socket.sendto(f.read().encode(), recv_addr)
+        data, _ = send_socket.recvfrom(SIZE)
+        msg = data.decode()
+        # print(msg)
+
+        send_socket.close()
+        self.send_lock.release()
+        return
+        
+
+    # If you receive a route_put: you need to send a file to the given target
+    def route(self, source_filename, dest_filename, target):
+        t = threading.Thread(target = self.send_file, args = (source_filename, dest_filename, target))
+        t.start()
+
+
+    def put(self, local_filename, sdfs_filename, target):
+        sender_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        if HOST != self.INTRODUCER_HOST:
+            # Reroute the put request to the leader
+            query = [utils.SDFS_Type.PUT, target, local_filename, sdfs_filename]
+            sender_socket.sendto(json.dumps(query).encode(), (self.INTRODUCER_HOST, PORT + 1))
+        else:
+            # Generate the next node that isn't dead, given a certain offset from the memebrship list
+            def get_replica_set():
+                keys = list(self.MembershipList.keys())
+                N = len(keys)
+                curr_idx = random.randrange(N)
+                end_idx = curr_idx - 1
+                replica_set = set()
+
+                ct = 3
+                while ct > 0:
+                    if self.MembershipList[keys[curr_idx % N]][1] != utils.Status.LEAVE:
+                        replica_set.add(keys[curr_idx % N])
+                        ct -= 1
+                    curr_idx += 1
+                    if curr_idx == end_idx:
+                        break
+
+                return replica_set
+
+            replica_set = get_replica_set()
+
+            if sdfs_filename not in self.MachinesByFile:
+                self.MachinesByFile[sdfs_filename] = {}
+            current_version = len(self.MachinesByFile[sdfs_filename]) + 1
+            self.MachinesByFile[sdfs_filename][current_version] = replica_set
+
+            for i in replica_set:
+                internal_sdfs_filename = f"{sdfs_filename}-{current_version}"
+                q = [utils.SDFS_Type.ROUTE, i, local_filename, f".files/{internal_sdfs_filename}"]
+                # Send a route back to the sender, telling it to send the file to the given nodes
+                sender_socket.sendto(json.dumps(q).encode(), (target, PORT + 1))
+                if i not in self.FilesByMachine:
+                    self.FilesByMachine[i] = []
+
+                self.FilesByMachine[i].append(internal_sdfs_filename)
+
+
+    def get(self, local_filename, sdfs_filename, target):
+        outgoing_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        if HOST != self.INTRODUCER_HOST:
+            query = [utils.SDFS_Type.GET, target, local_filename, sdfs_filename]
+            outgoing_socket.sendto(json.dumps(query).encode(), (self.INTRODUCER_HOST, PORT + 1))
+        else:
+            version = len(self.MachinesByFile[sdfs_filename])
+            replica_node = utils.elem(self.MachinesByFile[sdfs_filename][version]) # gets a machine with the replica on it, simply need to route
+            query = [utils.SDFS_Type.ROUTE, target, f".files/{sdfs_filename}-{version}", local_filename]
+            outgoing_socket.sendto(json.dumps(query).encode(), (replica_node, PORT + 1))
+
+
     def shell(self):
-        print("Welcome to the interactive shell for CS425 MP2. You may press 1/2/3/4 for below functionalities.\n"
-              "1. list_mem: list the membership list\n"
-              "2. list_self: list self's id\n"
-              "3. join: command to join the group\n"
-              "4. leave: command to voluntarily leave the group (different from a failure, which will be Ctrl-C or kill)\n"
-              "5. grep: get into mp1 grep program"
-              )
+        global RUNNING
+        print("""Please use the following codes for the below functionalities:\n
+                \r\t 1. put: add a file to the file system
+                \r\t 2. get: get a file from the file system
+                \r\t 3. delete: delete a file from the file system
+                \r\t 4. ls: print all files in the filesystem
+                \r\t 5. store: list all files being stored in the machine
+                \r\t 6. get-versions: get the last N versions of the file in the machine
+                \r\t 7. list_mem: list the membership list"
+                \r\t 8. list_self: list self's id"
+                \r\t 9. leave: command to voluntarily leave the group (different from a failure, which will be Ctrl-C or kill)"
+                \r\t10. grep: get into mp1 grep"
+
+
+            """)
         
         time.sleep(1)
         # interactive shell
-        while True:
-            input_str = input("Please enter input: ")
+        self.join()
+        while RUNNING:
+            input_str = input("Please enter command: ")
             if input_str == 'exit':
-                break
-            if input_str == "1":
+                RUNNING = False
+            elif input_str == "1":
+                print("Selected put")
+                local_filename = input("Enter local filename: ")
+                if not os.path.exists(local_filename):
+                    print("local file does not exist! please try again")
+                    continue
+                sdfs_filename = input("Enter SDFS filename: ")
+                self.put(local_filename, sdfs_filename, HOST)
+            elif input_str == "2":
+                print("Selected get")
+                sdfs_filename = input("Enter SDFS filename: ")
+                if not sdfs_filename in self.MachinesByFile:
+                    print("file does not exist in the system! please try again")
+                    continue
+                local_filename = input("Enter local filename: ")
+                self.get(local_filename, sdfs_filename, HOST)
+            elif input_str == "3":
+                print("Selected delete")
+                pass
+            elif input_str == "4":
+                print("Selected ls")
+                print(list(self.MachinesByFile.keys()))
+            elif input_str == "5":
+                print("Selected store")
+                print(self.FilesByMachine.get(HOST, []))
+            elif input_str == "6":
+                pass
+            if input_str == "7":
                 print("Selected list_mem")
                 self.print_membership_list()
-            elif input_str == "2":
+            elif input_str == "8":
                 print("Selected list_self")
                 self.print_self_id()
-            elif input_str == "3":
-                print("Selected join the group")
-                self.join()
-            elif input_str == "4":
-                print("Selected voluntarily leave")
+            elif input_str == "9":
+                print("Selected leave")
                 self.leave()
-            elif input_str == "5":
-                input_command = input("Please enter grep command: ")
-                c = mp1_client.Client(input_command)
-                t = threading.Thread(target = c.query)
-                t.start()
-                t.join()
             else:
                 print("Invalid input. Please try again")
+        return
 
     def run(self):
+        global RUNNING
         '''
         run function starts the server
 
@@ -351,7 +620,8 @@ class Server:
         '''
         logging.info('Enter run() function.')
         t_monitor = threading.Thread(target=self.monitor_program)
-        t_receiver = threading.Thread(target=self.receiver_program)
+        t_detector = threading.Thread(target=self.detector_program)
+        t_sdfs = threading.Thread(target=self.sdfs_program)
         t_shell = threading.Thread(target=self.shell)
         # t_sender = threading.Thread(target=self.send_ping)
         t_server_mp1 = threading.Thread(target = mp1_server.server_program)
@@ -362,21 +632,25 @@ class Server:
             threads.append(t_send)
             i += 1
         t_monitor.start()
-        t_receiver.start()
+        t_detector.start()
+        t_sdfs.start()
         t_shell.start()
         # t_sender.start()
         t_server_mp1.start()
         for t in threads:
             t.start()
         t_monitor.join()
-        t_receiver.join()
+        t_detector.join()
         t_shell.join()
-        t_sender.join()
-        t_server_mp1.join()
+        t_sdfs.join()
+        # t_sender.join()
+        # t_server_mp1.join()
+        # print("post-mp1-server")
         for t in threads:
             t.join()
-
-
+        print("PROGRAM FINISHED. Please send Ctrl+C or Ctrl+Z to terminate.")
+        return
+    # exit(0)
 if __name__ == '__main__':
     s = Server()
     s.run()
