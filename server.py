@@ -74,6 +74,10 @@ class Server:
         self.send_lock = threading.Lock()
         self.recv_lock = threading.Lock()
 
+    def multicastFiles(outgoing_socket):
+        for h in self.MembershipList:
+            join_msg = [utils.SDFS_Type.UPDATE_FILES, self.MachinesByFile, self.FilesByMachine]
+            outgoing_socket.sendto(json.dumps(join_msg).encode(), (h, PORT + 1))
 
     def join(self):
         '''
@@ -102,12 +106,7 @@ class Server:
             outgoing_socket.sendto(json.dumps(join_msg).encode(), (self.INTRODUCER_HOST, PORT))
         else:
             print("This is introducer host!")
-
-            # TODO: Add implementation for this
-            # for h in self.MembershipList:
-            #     join_msg = [utils.Type.FILES, HOST, self.fileStructure]
-            #     outgoing_socket.sendto(json.dumps(join_msg).encode(), (h, PORT))
-
+            multicastFiles(outgoing_socket)
 
     def send_ping(self, host):
         global RUNNING
@@ -166,12 +165,15 @@ class Server:
                         continue
                     
                     # TODO: Add in implementation to constantly send a file list around
-                    # if query[0] == utils.SDFS_Type.FILE_LIST:
-                    #     self.
+                    if query[0] == utils.SDFS_Type.UPDATE_FILES:
+                        self.FilesByMachine = query[2]
+                        self.MachinesByFile = query[1]
+                        continue
 
                     arg, target, local_filename, sdfs_filename = query
                     if arg == utils.SDFS_Type.PUT:
                         self.put(local_filename, sdfs_filename, target)
+                        multicastFiles(sdfs_socket)
                     elif arg == utils.SDFS_Type.GET:
                         self.get(local_filename, sdfs_filename, target)
                     elif arg == utils.SDFS_Type.ROUTE:
@@ -413,6 +415,7 @@ class Server:
                 N = len(keys)
                 offset = random.randrange(N)
                 for i in range(N):
+                    # assign a new replica for every file 
                     new_replica = self.MembershipList[keys[(i + offset) % N]]
                     old_replica = utils.elem(self.MachinesByFile[f][v])
 
