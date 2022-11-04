@@ -324,7 +324,6 @@ class Server:
             if (self.MembershipList[node][1] != utils.Status.LEAVE):
                 self.INTRODUCER_HOST = node
                 break
-        # print(f"new leader={self.INTRODUCER_HOST}")
         
 
     def monitor_program(self):
@@ -565,8 +564,6 @@ class Server:
                 \r\t 8. list_self: list self's id"
                 \r\t 9. leave: command to voluntarily leave the group (different from a failure, which will be Ctrl-C or kill)"
                 \r\t10. grep: get into mp1 grep"
-
-
             """)
         
         time.sleep(1)
