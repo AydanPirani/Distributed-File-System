@@ -84,7 +84,7 @@ class Server:
         if HOST == self.INTRODUCER_HOST:
             query = [utils.SDFS_Type.UPDATE_FILES, self.MachinesByFile, self.FilesByMachine]
             for h in self.MembershipList:
-                if self.MembershipList[h][1] != utils.Status.FAILED:
+                if self.MembershipList[h][1] != utils.Status.LEAVE:
                     outgoing_socket.sendto(json.dumps(query).encode(), (h, PORT + 1))
         else:
             if q1 != "" and q2 != "":
@@ -316,12 +316,13 @@ class Server:
 
     def assign_leader(self):
         keys = sorted(self.MembershipList.keys())
+        print(keys)
         for node in keys:
             # check new vs running? 
             if (self.MembershipList[node][1] != utils.Status.LEAVE):
                 self.INTRODUCER_HOST = node
                 break
-        print(f"new leader={self.INTRODUCER_HOST}")
+        # print(f"new leader={self.INTRODUCER_HOST}")
         
 
     def monitor_program(self):
