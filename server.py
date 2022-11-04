@@ -84,7 +84,7 @@ class Server:
         if HOST == self.INTRODUCER_HOST:
             query = [utils.SDFS_Type.UPDATE_FILES, self.MachinesByFile, self.FilesByMachine]
             for h in self.MembershipList:
-                if self.MembershipList[h][1] != utils.Status.RUNNING:
+                if self.MembershipList[h][1] != utils.Status.FAILED:
                     outgoing_socket.sendto(json.dumps(query).encode(), (h, PORT + 1))
         else:
             if q1 != "" and q2 != "":
@@ -321,7 +321,7 @@ class Server:
             if (self.MembershipList[node][1] != utils.Status.LEAVE):
                 self.INTRODUCER_HOST = node
                 break
-        # print(f"new leader={self.INTRODUCER_HOST}")
+        print(f"new leader={self.INTRODUCER_HOST}")
         
 
     def monitor_program(self):
@@ -524,7 +524,7 @@ class Server:
                 self.MachinesByFile[sdfs_filename] = {}
             current_version = len(self.MachinesByFile[sdfs_filename]) + 1
             self.MachinesByFile[sdfs_filename][current_version] = list(replica_set)
-
+            print(self.MachinesByFile)
             for i in replica_set:
                 internal_sdfs_filename = f"{sdfs_filename}-{current_version}"
                 q = [utils.SDFS_Type.ROUTE, i, local_filename, f".files/{internal_sdfs_filename}"]
@@ -534,6 +534,7 @@ class Server:
                     self.FilesByMachine[i] = []
 
                 self.FilesByMachine[i].append(internal_sdfs_filename)
+            print(self.FilesByMachine)
 
 
     def get(self, local_filename, sdfs_filename, target):
