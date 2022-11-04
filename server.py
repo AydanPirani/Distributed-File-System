@@ -245,8 +245,8 @@ class Server:
                         recv_logger.info("Encounter join before:")
                         recv_logger.info(json.dumps(self.MembershipList))
                         # if a ping is received with the JOIN status, set status to NEW 
-                        # self.MembershipList[sender_host] = (str(int(time.time())), utils.Status.NEW)
-                        self.MembershipList[sender_host] = (str(int(time.time())), utils.Status.RUNNING)
+                        self.MembershipList[sender_host] = (str(int(time.time())), utils.Status.NEW)
+                        # self.MembershipList[sender_host] = (str(int(time.time())), utils.Status.RUNNING)
                         recv_logger.info("Encounter join after:")
                         recv_logger.info(json.dumps(self.MembershipList))
                         
@@ -314,6 +314,7 @@ class Server:
                     print(e)
 
         return
+
 
     def assign_leader(self):
         keys = sorted(self.MembershipList.keys())
