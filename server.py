@@ -593,7 +593,6 @@ class Server:
                 self.get(local_filename, sdfs_filename, HOST)
             elif input_str == "3":
                 print("Selected delete")
-                pass
             elif input_str == "4":
                 print("Selected ls")
                 print(list(self.MachinesByFile.keys()))
@@ -601,8 +600,8 @@ class Server:
                 print("Selected store")
                 print(self.FilesByMachine.get(HOST, []))
             elif input_str == "6":
-                pass
-            if input_str == "7":
+                print("Selected num_versions")
+            elif input_str == "7":
                 print("Selected list_mem")
                 self.print_membership_list()
             elif input_str == "8":
@@ -612,7 +611,7 @@ class Server:
                 print("Selected leave")
                 self.leave()
             else:
-                print("Invalid input. Please try again")
+                print(f"Invalid input|{input_str}|. Please try again")
             self.multicast_files()
         return
 
