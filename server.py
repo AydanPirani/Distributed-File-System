@@ -332,7 +332,6 @@ class Server:
 
         global RUNNING
         print("monitor started")
-        detection_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         while RUNNING:
             try:
                 self.time_lock.acquire()
@@ -523,7 +522,7 @@ class Server:
             if sdfs_filename not in self.MachinesByFile:
                 self.MachinesByFile[sdfs_filename] = {}
             current_version = len(self.MachinesByFile[sdfs_filename]) + 1
-            self.MachinesByFile[sdfs_filename][current_version] = replica_set
+            self.MachinesByFile[sdfs_filename][current_version] = list(replica_set)
 
             for i in replica_set:
                 internal_sdfs_filename = f"{sdfs_filename}-{current_version}"
