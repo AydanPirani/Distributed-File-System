@@ -101,7 +101,7 @@ class Server:
 
         return: None
         '''
-        print("start joining")
+        # print("start joining")
         timestamp = str(int(time.time()))
         join_logger.info("Encounter join before:")
         join_logger.info(self.MembershipList)
@@ -121,7 +121,7 @@ class Server:
             join_msg = [utils.Type.JOIN, HOST, self.MembershipList[HOST]]
             outgoing_socket.sendto(json.dumps(join_msg).encode(), (self.INTRODUCER_HOST, PORT))
         else:
-            print("This is introducer host!")
+            # print("This is introducer host!")
             self.multicast_files()
 
 
@@ -132,7 +132,7 @@ class Server:
 
         return: None
         '''
-        print("sender started")
+        # print("sender started")
         outgoing_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         while RUNNING:
             time.sleep(0.3)
@@ -216,7 +216,7 @@ class Server:
         
         return: None
         '''
-        print("detector receiver started")
+        # print("detector receiver started")
         detection_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         detection_socket.bind((HOST, PORT))
         detection_socket.setblocking(0)
@@ -320,7 +320,8 @@ class Server:
             # check new vs running? 
             if (self.MembershipList[node][1] != utils.Status.LEAVE):
                 self.INTRODUCER_HOST = node
-        print(f"new leader={self.INTRODUCER_HOST}")
+                break
+        # print(f"new leader={self.INTRODUCER_HOST}")
         
 
     def monitor_program(self):
