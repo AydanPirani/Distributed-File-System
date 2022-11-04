@@ -74,10 +74,26 @@ class Server:
         self.send_lock = threading.Lock()
         self.recv_lock = threading.Lock()
 
-    def multicastFiles(outgoing_socket):
-        for h in self.MembershipList:
-            join_msg = [utils.SDFS_Type.UPDATE_FILES, self.MachinesByFile, self.FilesByMachine]
-            outgoing_socket.sendto(json.dumps(join_msg).encode(), (h, PORT + 1))
+    # multicasts the files if it is the leader, else reroute to leader
+    def multicast_files(self, q1="", q2=""):
+        outgoing_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+        # if leader -> send out files
+        # if not leader -> send request to leader, and update if theyre not empty
+
+        if HOST == self.INTRODUCER_HOST:
+            query = [utils.SDFS_Type.UPDATE_FILES, self.MachinesByFile, self.FilesByMachine]
+            for h in self.MembershipList:
+                if self.MembershipList[h][1] != utils.Status.RUNNING:
+                    outgoing_socket.sendto(json.dumps(query).encode(), (h, PORT + 1))
+        else:
+            if q1 != "" and q2 != "":
+                self.MachinesByFile = q1
+                self.FilesByMachine = q2
+            else:
+                q = [utils.SDFS_Type.UPDATE_FILES, "", ""]
+                outgoing_socket.sendto(json.dumps(q).encode(), (self.INTRODUCER_HOST, PORT + 1))
+
 
     def join(self):
         '''
@@ -106,7 +122,8 @@ class Server:
             outgoing_socket.sendto(json.dumps(join_msg).encode(), (self.INTRODUCER_HOST, PORT))
         else:
             print("This is introducer host!")
-            multicastFiles(outgoing_socket)
+            self.multicast_files()
+
 
     def send_ping(self, host):
         global RUNNING
@@ -147,6 +164,7 @@ class Server:
                 print(e)
         return 
 
+
     def sdfs_program(self):
         global RUNNING
 
@@ -159,6 +177,7 @@ class Server:
             try:
                 data, addr = sdfs_socket.recvfrom(SIZE)
                 if data:
+                    self.assign_leader()
                     query = json.loads(data.decode())
                     if query[0] == utils.SDFS_Type.UPDATE_PROCESS:
                         self.update_process(target)
@@ -166,14 +185,12 @@ class Server:
                     
                     # TODO: Add in implementation to constantly send a file list around
                     if query[0] == utils.SDFS_Type.UPDATE_FILES:
-                        self.FilesByMachine = query[2]
-                        self.MachinesByFile = query[1]
+                        self.multicast_files(query[1], query[2])
                         continue
 
                     arg, target, local_filename, sdfs_filename = query
                     if arg == utils.SDFS_Type.PUT:
                         self.put(local_filename, sdfs_filename, target)
-                        multicastFiles(sdfs_socket)
                     elif arg == utils.SDFS_Type.GET:
                         self.get(local_filename, sdfs_filename, target)
                     elif arg == utils.SDFS_Type.ROUTE:
@@ -182,10 +199,10 @@ class Server:
                         thread = threading.Thread(target = self.receive_file, args = (sdfs_filename, (target, PORT + 2)))
                         thread.start()
                     
-                    self.assignLeader()
+                    self.multicast_files()
             except:
                 pass
-        
+            
         return
 
 
@@ -202,8 +219,7 @@ class Server:
         print("detector receiver started")
         detection_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         detection_socket.bind((HOST, PORT))
-
-        
+        detection_socket.setblocking(0)
 
         recv_logger.info('receiver program started')
         while RUNNING:
@@ -293,10 +309,12 @@ class Server:
                         recv_logger.error("Unknown message type")
                     self.ml_lock.release()
             except Exception as e:
-                print(e)
+                if e.errno != 11:
+                    print(e)
 
+        return
 
-    def assignLeader(self):
+    def assign_leader(self):
         keys = sorted(self.MembershipList.keys())
         for node in keys:
             # check new vs running? 
@@ -329,29 +347,9 @@ class Server:
                             monitor_logger.info("Encounter timeout before:")
                             monitor_logger.info(json.dumps(self.MembershipList))
                             self.MembershipList[hostname] = (value[0], utils.Status.LEAVE)
-                            #if intro 
-                            self.assignLeader()
+                            # Node dies
+                            self.assign_leader()
                             self.update_process(hostname)
-
-                            # if HOST == self.INTRODUCER_HOST:
-                            #     # fix -> check if the newNode is status leave, if it is, choose new random node
-                            #     newReplicaNodeHost, newReplicaNodeValue = random.choice(list(self.MembershipList.values()))
-                            #     # newReplicaNode = random.randint(0, len(self.MembershipList))
-                            #     while (newReplicaNodeValue[1] != utils.Status.LEAVE):
-                            #         newReplicaNodeHost, newReplicaNodeValue = random.choice(list(self.MembershipList.values()))
-                            #     for fileName in self.fileStructure.keys():
-                            #         for version in fileName.keys():
-                            #             if hostname in fileName[version]:
-                            #                 fileName[version].remove(hostname)
-                            #                 #pick another node in this list that has the versioned file 
-                            #                 fileContainingReplica = fileName[version][0]
-                            #                 # send a message to fileContainingReplica telling it to send its versioned file to newReplicaNode
-                            #                 join_msg = [utils.Type.SEND, newReplicaNodeHost, version]
-                            #                 # TODO: Ensure that we have another socket to listen
-                            #                 # print("sending", join_msg)
-                            #                 detection_socket.sendto(json.dumps(join_msg).encode(), (fileContainingReplica, PORT+1))
-                            #                 # add a new request_type for this^?
-                            
                             monitor_logger.info("Encounter timeout after:")
                             monitor_logger.info(json.dumps(self.MembershipList))
                         self.last_update.pop(hostname, None)
@@ -571,9 +569,12 @@ class Server:
         # interactive shell
         self.join()
         while RUNNING:
+            self.assign_leader()
+
             input_str = input("Please enter command: ")
             if input_str == 'exit':
                 RUNNING = False
+                break
             elif input_str == "1":
                 print("Selected put")
                 local_filename = input("Enter local filename: ")
@@ -612,7 +613,9 @@ class Server:
                 self.leave()
             else:
                 print("Invalid input. Please try again")
+            self.multicast_files()
         return
+
 
     def run(self):
         global RUNNING
