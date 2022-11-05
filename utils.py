@@ -22,9 +22,10 @@ class Type:
 class SDFS_Type:
     PUT = "Put"
     GET = "Get"
+    DELETE = "Delete"
     SEND_FILE = "Send_File"
     RECEIVE_FILE = "Receive_File"
-    FILES = "Files"
+    UPDATE_FILES = "Update_Files"
     ROUTE = "Route"
     UPDATE_PROCESS = "Update_Process"
 
