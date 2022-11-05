@@ -1,4 +1,4 @@
-import datetime
+from datetime import datetime
 from multiprocessing.pool import RUN
 import time
 
@@ -182,8 +182,11 @@ class Server:
                     if query[0] == utils.SDFS_Type.UPDATE_PROCESS:
                         self.update_process(target)
                         continue
+
+                    if query[0] == utils.SDFS_Type.DELETE:
+                        self.delete(query[1])
+                        continue
                     
-                    # TODO: Add in implementation to constantly send a file list around
                     if query[0] == utils.SDFS_Type.UPDATE_FILES:
                         self.multicast_files(query[1], query[2])
                         continue
@@ -196,6 +199,7 @@ class Server:
                     elif arg == utils.SDFS_Type.ROUTE:
                         self.route(local_filename, sdfs_filename, target)
                     elif arg == utils.SDFS_Type.RECEIVE_FILE:
+                        open(sdfs_filename, "a+").close()
                         thread = threading.Thread(target = self.receive_file, args = (sdfs_filename, (target, PORT + 2)))
                         thread.start()
                     
@@ -443,11 +447,11 @@ class Server:
         size = int(data.decode())
         recv_socket.sendto("Size Received".encode(), addr)
         
-        with open(f"{dest_filename}", "w+") as f:
-            while size > 0: 
-                data, _ = recv_socket.recvfrom(SIZE)
-                f.write(data.decode())
-                size -= len(data)
+        with open(f"{dest_filename}", "a+") as f:
+            data, _ = recv_socket.recvfrom(size)
+            f.write(data.decode())
+            f.write("\n")
+
         recv_socket.sendto("File received".encode(), addr)
         recv_socket.close()
         self.recv_lock.release()
@@ -494,6 +498,18 @@ class Server:
         t.start()
 
 
+    def delete(self, sdfs_filename):
+        sender_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        if HOST != self.INTRODUCER_HOST:
+            query = [utils.SDFS_Type.DELETE, sdfs_filename]
+            sender_socket.sendto(json.dumps(query).encode(), (self.INTRODUCER_HOST, PORT + 1))
+        else:
+            for v in self.MachinesByFile[sdfs_filename]:
+                for m in self.MachinesByFile[sdfs_filename][v]:
+                    self.FilesByMachine[m].remove(f"{sdfs_filename}-{v}")
+            self.MachinesByFile.pop(sdfs_filename)
+
+
     def put(self, local_filename, sdfs_filename, target):
         sender_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         if HOST != self.INTRODUCER_HOST:
@@ -509,7 +525,7 @@ class Server:
                 end_idx = curr_idx - 1
                 replica_set = set()
 
-                ct = 3
+                ct = 4
                 while ct > 0:
                     if self.MembershipList[keys[curr_idx % N]][1] != utils.Status.LEAVE:
                         replica_set.add(keys[curr_idx % N])
@@ -539,13 +555,17 @@ class Server:
             print(self.FilesByMachine)
 
 
-    def get(self, local_filename, sdfs_filename, target):
+    def get(self, local_filename, sdfs_filename, target, version = 0):
         outgoing_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         if HOST != self.INTRODUCER_HOST:
             query = [utils.SDFS_Type.GET, target, local_filename, sdfs_filename]
             outgoing_socket.sendto(json.dumps(query).encode(), (self.INTRODUCER_HOST, PORT + 1))
         else:
-            version = len(self.MachinesByFile[sdfs_filename])
+            version = len(self.MachinesByFile[sdfs_filename]) - version
+            # Return if we're going back too far in time (not enough versions of the file found)
+            if version <= 0 or version > len(self.MachinesByFile[sdfs_filename]):
+                return
+            print(version, self.MachinesByFile, self.FilesByMachine)
             replica_node = utils.elem(self.MachinesByFile[sdfs_filename][version]) # gets a machine with the replica on it, simply need to route
             query = [utils.SDFS_Type.ROUTE, target, f".files/{sdfs_filename}-{version}", local_filename]
             outgoing_socket.sendto(json.dumps(query).encode(), (replica_node, PORT + 1))
@@ -554,6 +574,7 @@ class Server:
     def shell(self):
         global RUNNING
         print("""Please use the following codes for the below functionalities:\n
+                \r\t 0. exit: exit the file system
                 \r\t 1. put: add a file to the file system
                 \r\t 2. get: get a file from the file system
                 \r\t 3. delete: delete a file from the file system
@@ -567,13 +588,14 @@ class Server:
             """)
         
         time.sleep(1)
-        # interactive shell
         self.join()
         while RUNNING:
             self.assign_leader()
+            self.multicast_files()
 
             input_str = input("Please enter command: ")
-            if input_str == 'exit':
+            start = datetime.now()
+            if input_str == "0" or input_str == "exit":
                 RUNNING = False
                 break
             elif input_str == "1":
@@ -591,9 +613,15 @@ class Server:
                     print("file does not exist in the system! please try again")
                     continue
                 local_filename = input("Enter local filename: ")
+                open(local_filename, "w+").close()
                 self.get(local_filename, sdfs_filename, HOST)
             elif input_str == "3":
                 print("Selected delete")
+                sdfs_filename = input("Enter SDFS filename: ")
+                if not sdfs_filename in self.MachinesByFile:
+                    print("file does not exist in the system! please try again")
+                    continue
+                self.delete(sdfs_filename)
             elif input_str == "4":
                 print("Selected ls")
                 print(list(self.MachinesByFile.keys()))
@@ -602,6 +630,21 @@ class Server:
                 print(self.FilesByMachine.get(HOST, []))
             elif input_str == "6":
                 print("Selected num_versions")
+                sdfs_filename = input("Enter SDFS filename: ")
+                self.recv_lock.acquire()
+                if not sdfs_filename in self.MachinesByFile:
+                    print("file does not exist in the system! please try again")
+                    continue
+
+                local_filename = input("Enter local filename: ")
+                num_versions = int(input("Enter num versions: " ))
+
+                curr_len = len(self.MachinesByFile[sdfs_filename])
+                for i in range(num_versions, 0, -1):
+                    with open(local_filename, "a+") as f:
+                        f.write(f"=====================\n{sdfs_filename.upper()} {i} VERSIONS AGO: \n")
+                    self.get(local_filename, sdfs_filename, HOST, curr_len - i)
+                self.recv_lock.release()
             elif input_str == "7":
                 print("Selected list_mem")
                 self.print_membership_list()
@@ -612,8 +655,10 @@ class Server:
                 print("Selected leave")
                 self.leave()
             else:
-                print(f"Invalid input|{input_str}|. Please try again")
-            self.multicast_files()
+                print(f"Invalid input \"{input_str}\". Please try again")
+                continue
+
+            print(f"Finished operation! Time taken: {datetime.now() - start}")
         return
 
 
@@ -654,7 +699,7 @@ class Server:
         # print("post-mp1-server")
         for t in threads:
             t.join()
-        print("PROGRAM FINISHED. Please send Ctrl+C or Ctrl+Z to terminate.")
+        print("PROGRAM FINISHED. Please send Ctrl+Z to terminate.")
         return
     # exit(0)
 if __name__ == '__main__':
