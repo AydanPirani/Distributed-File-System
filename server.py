@@ -28,12 +28,6 @@ RUNNING = True
 
 import time
  
-# def handler(signum, frame):
-#     global RUNNING
-#     print("received!")
-#     RUNNING = False
-# signal.signal(signal.SIGINT, handler)
-
 # So you send pings so that the nodes that you've pinged update their memebership list at the value of the pinging node 
 # and so that they update their membership lists with all the extra values of the pinging nodes membership list
 # When you send a pong, the node that receives pong updates its membership list at the value of the sending pong's node
