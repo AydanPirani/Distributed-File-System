@@ -16,8 +16,6 @@ import random
 
 from logging.handlers import RotatingFileHandler
 
-import mp1_client
-import mp1_server
 import signal
 
 HOST = socket.gethostname()
@@ -103,6 +101,9 @@ class Server:
         # Clear the files directory upon joining, and re-generate the directory
         shutil.rmtree(".files", ignore_errors=True)
         os.mkdir(".files")
+
+        shutil.rmtree(".internal", ignore_errors=True)
+        os.mkdir(".internal")
 
         # change the status to running when it sends a message to the introducer or when it is introducer
         self.MembershipList[HOST] = (timestamp, utils.Status.RUNNING)
@@ -441,10 +442,10 @@ class Server:
         size = int(data.decode())
         recv_socket.sendto("Size Received".encode(), addr)
         
-        with open(f"{dest_filename}", "a+") as f:
-            data, _ = recv_socket.recvfrom(size)
-            f.write(data.decode())
-            f.write("\n")
+        f = open(f"{dest_filename}", "a+")
+        data, _ = recv_socket.recvfrom(size)
+        f.write(data.decode())
+        f.close()
 
         recv_socket.sendto("File received".encode(), addr)
         recv_socket.close()
@@ -536,7 +537,6 @@ class Server:
                 self.MachinesByFile[sdfs_filename] = {}
             current_version = len(self.MachinesByFile[sdfs_filename]) + 1
             self.MachinesByFile[sdfs_filename][current_version] = list(replica_set)
-            print(self.MachinesByFile)
             for i in replica_set:
                 internal_sdfs_filename = f"{sdfs_filename}-{current_version}"
                 q = [utils.SDFS_Type.ROUTE, i, local_filename, f".files/{internal_sdfs_filename}"]
@@ -546,7 +546,6 @@ class Server:
                     self.FilesByMachine[i] = []
 
                 self.FilesByMachine[i].append(internal_sdfs_filename)
-            print(self.FilesByMachine)
 
 
     def get(self, local_filename, sdfs_filename, target, version = 0):
@@ -559,7 +558,7 @@ class Server:
             # Return if we're going back too far in time (not enough versions of the file found)
             if version <= 0 or version > len(self.MachinesByFile[sdfs_filename]):
                 return
-            print(version, self.MachinesByFile, self.FilesByMachine)
+            # print(version, self.MachinesByFile, self.FilesByMachine)
             replica_node = utils.elem(self.MachinesByFile[sdfs_filename][version]) # gets a machine with the replica on it, simply need to route
             query = [utils.SDFS_Type.ROUTE, target, f".files/{sdfs_filename}-{version}", local_filename]
             outgoing_socket.sendto(json.dumps(query).encode(), (replica_node, PORT + 1))
@@ -578,7 +577,6 @@ class Server:
                 \r\t 7. list_mem: list the membership list"
                 \r\t 8. list_self: list self's id"
                 \r\t 9. leave: command to voluntarily leave the group (different from a failure, which will be Ctrl-C or kill)"
-                \r\t10. grep: get into mp1 grep"
             """)
         
         time.sleep(1)
@@ -618,14 +616,18 @@ class Server:
                 self.delete(sdfs_filename)
             elif input_str == "4":
                 print("Selected ls")
-                print(list(self.MachinesByFile.keys()))
+                sdfs_filename = input("Enter SDFS filename: ")
+                if not sdfs_filename in self.MachinesByFile:
+                    print("file does not exist in the system! please try again")
+                    continue
+                print(self.MachinesByFile[sdfs_filename])
             elif input_str == "5":
                 print("Selected store")
                 print(self.FilesByMachine.get(HOST, []))
             elif input_str == "6":
                 print("Selected num_versions")
                 sdfs_filename = input("Enter SDFS filename: ")
-                self.recv_lock.acquire()
+                # self.recv_lock.acquire()
                 if not sdfs_filename in self.MachinesByFile:
                     print("file does not exist in the system! please try again")
                     continue
@@ -633,12 +635,31 @@ class Server:
                 local_filename = input("Enter local filename: ")
                 num_versions = int(input("Enter num versions: " ))
 
-                curr_len = len(self.MachinesByFile[sdfs_filename])
-                for i in range(num_versions, 0, -1):
-                    with open(local_filename, "a+") as f:
-                        f.write(f"=====================\n{sdfs_filename.upper()} {i} VERSIONS AGO: \n")
-                    self.get(local_filename, sdfs_filename, HOST, curr_len - i)
-                self.recv_lock.release()
+                for i in range(num_versions):
+                    self.get(f".internal/{sdfs_filename}-{i}", sdfs_filename, HOST, i)
+
+                while (len(os.listdir(".internal")) != min(num_versions, len(self.MachinesByFile[sdfs_filename]))):
+                    pass
+                
+                l = list(os.listdir(".internal"))
+                f = open(local_filename, "w")
+
+                for i in l:
+                    f.write(f"=====================\nDATA AT {i.upper()}: \n")
+                    t_f = open(f".internal/{i}", "r")
+                    s = t_f.read()
+                    f.write(s)
+                    t_f.close()
+
+
+                t_f = open(f".internal/{l[-1]}", "r")
+                s = t_f.read()
+                f.write(s)
+                t_f.close()
+                    
+                f.close()
+
+                # self.recv_lock.release()
             elif input_str == "7":
                 print("Selected list_mem")
                 self.print_membership_list()
@@ -669,7 +690,7 @@ class Server:
         t_sdfs = threading.Thread(target=self.sdfs_program)
         t_shell = threading.Thread(target=self.shell)
         # t_sender = threading.Thread(target=self.send_ping)
-        t_server_mp1 = threading.Thread(target = mp1_server.server_program)
+        # t_server_mp1 = threading.Thread(target = mp1_server.server_program)
         threads = []
         i = 0
         for host in utils.get_neighbors(HOST):
@@ -681,7 +702,7 @@ class Server:
         t_sdfs.start()
         t_shell.start()
         # t_sender.start()
-        t_server_mp1.start()
+        # t_server_mp1.start()
         for t in threads:
             t.start()
         t_monitor.join()
@@ -693,7 +714,7 @@ class Server:
         # print("post-mp1-server")
         for t in threads:
             t.join()
-        print("PROGRAM FINISHED. Please send Ctrl+Z to terminate.")
+        print("PROGRAM FINISHED.")
         return
     # exit(0)
 if __name__ == '__main__':
