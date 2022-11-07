@@ -75,7 +75,8 @@ class Server:
 
         if HOST == self.INTRODUCER_HOST:
             query = [utils.SDFS_Type.UPDATE_FILES, self.MachinesByFile, self.FilesByMachine]
-            for h in self.MembershipList:
+            keys = self.MembershipList.keys()
+            for h in keys:
                 if self.MembershipList[h][1] != utils.Status.LEAVE:
                     outgoing_socket.sendto(json.dumps(query).encode(), (h, PORT + 1))
         else:
@@ -102,8 +103,8 @@ class Server:
         shutil.rmtree(".files", ignore_errors=True)
         os.mkdir(".files")
 
-        shutil.rmtree(".internal", ignore_errors=True)
-        os.mkdir(".internal")
+        shutil.rmtree("output", ignore_errors=True)
+        os.mkdir("output")
 
         # change the status to running when it sends a message to the introducer or when it is introducer
         self.MembershipList[HOST] = (timestamp, utils.Status.RUNNING)
@@ -135,6 +136,7 @@ class Server:
             if self.MembershipList[HOST][1] == utils.Status.LEAVE or host not in self.MembershipList or self.MembershipList[host][1] == utils.Status.LEAVE:
                 continue
             try:
+                print("ping")
                 self.ml_lock.acquire()
                 # get curr time
                 timestamp = str(int(time.time()))
@@ -236,7 +238,8 @@ class Server:
                     request_type = request_list[0]
                     
                     request_membership = request_list[2]
-            
+
+                    print("receiver")
                     self.ml_lock.acquire()
                     # everytime a ping with JOIN status is reveived, set that node to NEW in the current HOSTS's membership lisy
                     # if the current node, HOST, is an introducer, send the JOIN message out to all of the nodes
@@ -403,6 +406,7 @@ class Server:
     
     def update_process(self, target):
         outgoing_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        print(self.MachinesByFile, self.FilesByMachine)
         if HOST == utils.INTRODUCER_HOST:
             # Send a bunch of reroute messages
             for internal_f in self.FilesByMachine[target]:
@@ -422,6 +426,7 @@ class Server:
                         q = [utils.SDFS_Type.ROUTE, new_replica, f, f".files/{internal_f}"]
                         outgoing_socket.sendto(json.dumps(q).encode(), (old_replica, PORT + 1))
                         break
+            print(self.MachinesByFile, self.FilesByMachine)
         else:
             query = [utils.SDFS_Type.UPDATE_PROCESS, target, "", ""]
             outgoing_socket.sendto(json.dumps(query).encode(), (utils.INTRODUCER_HOST, PORT + 1))
@@ -582,6 +587,7 @@ class Server:
         time.sleep(1)
         self.join()
         while RUNNING:
+            print("here!")
             self.assign_leader()
             self.multicast_files()
 
@@ -626,38 +632,42 @@ class Server:
                 print(self.FilesByMachine.get(HOST, []))
             elif input_str == "6":
                 print("Selected num_versions")
+
                 sdfs_filename = input("Enter SDFS filename: ")
-                # self.recv_lock.acquire()
+                # Clear the files directory upon joining, and re-generate the directory
                 if not sdfs_filename in self.MachinesByFile:
                     print("file does not exist in the system! please try again")
                     continue
 
-                local_filename = input("Enter local filename: ")
+                local_filename = input("Enter local directory: ")
                 num_versions = int(input("Enter num versions: " ))
 
+                shutil.rmtree(f"output/{local_filename}", ignore_errors=True)
+                os.mkdir(f"output/{local_filename}")
+
                 for i in range(num_versions):
-                    self.get(f".internal/{sdfs_filename}-{i}", sdfs_filename, HOST, i)
+                    self.get(f"output/{local_filename}/{sdfs_filename}-{i}", sdfs_filename, HOST, i)
 
-                while (len(os.listdir(".internal")) != min(num_versions, len(self.MachinesByFile[sdfs_filename]))):
-                    pass
+                # while (len(os.listdir(".internal")) != min(num_versions, len(self.MachinesByFile[sdfs_filename]))):
+                #     pass
                 
-                l = list(os.listdir(".internal"))
-                f = open(local_filename, "w")
+                # l = list(os.listdir(".internal"))
+                # f = open(local_filename, "w")
 
-                for i in l:
-                    f.write(f"=====================\nDATA AT {i.upper()}: \n")
-                    t_f = open(f".internal/{i}", "r")
-                    s = t_f.read()
-                    f.write(s)
-                    t_f.close()
+                # for i in l:
+                #     f.write(f"=====================\nDATA AT {i.upper()}: \n")
+                #     t_f = open(f".internal/{i}", "r")
+                #     s = t_f.read()
+                #     f.write(s)
+                #     t_f.close()
 
 
-                t_f = open(f".internal/{l[-1]}", "r")
-                s = t_f.read()
-                f.write(s)
-                t_f.close()
+                # t_f = open(f".internal/{l[-1]}", "r")
+                # s = t_f.read()
+                # f.write(s)
+                # t_f.close()
                     
-                f.close()
+                # f.close()
 
                 # self.recv_lock.release()
             elif input_str == "7":
