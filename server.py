@@ -75,7 +75,7 @@ class Server:
 
         if HOST == self.INTRODUCER_HOST:
             query = [utils.SDFS_Type.UPDATE_FILES, self.MachinesByFile, self.FilesByMachine]
-            keys = self.MembershipList.keys()
+            keys = list(self.MembershipList.keys())
             for h in keys:
                 if self.MembershipList[h][1] != utils.Status.LEAVE:
                     outgoing_socket.sendto(json.dumps(query).encode(), (h, PORT + 1))
@@ -585,7 +585,6 @@ class Server:
         time.sleep(1)
         self.join()
         while RUNNING:
-            print("here!")
             self.assign_leader()
             self.multicast_files()
 
