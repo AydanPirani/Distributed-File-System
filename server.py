@@ -72,7 +72,6 @@ class Server:
 
         # if leader -> send out files
         # if not leader -> send request to leader, and update if theyre not empty
-
         if HOST == self.INTRODUCER_HOST:
             query = [utils.SDFS_Type.UPDATE_FILES, self.MachinesByFile, self.FilesByMachine]
             keys = list(self.MembershipList.keys())
@@ -111,13 +110,11 @@ class Server:
         join_logger.info("Encounter after before:")
         join_logger.info(self.MembershipList)
         outgoing_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        # print(f"in join! host={HOST}, introducer={utils.INTRODUCER_HOST}")
         if HOST != self.INTRODUCER_HOST:
             # send a message that this node wants to join to the introducer
             join_msg = [utils.Type.JOIN, HOST, self.MembershipList[HOST]]
             outgoing_socket.sendto(json.dumps(join_msg).encode(), (self.INTRODUCER_HOST, PORT))
         else:
-            # print("This is introducer host!")
             self.multicast_files()
 
 
@@ -160,7 +157,7 @@ class Server:
                 print(e)
         return 
 
-
+    # Perfoms functions for PUT, GET, ROUTE, RECEIVE_FILE, UPDATE_FILES, UPDATE_PROCESS
     def sdfs_program(self):
         global RUNNING
 
@@ -173,20 +170,22 @@ class Server:
             try:
                 data, addr = sdfs_socket.recvfrom(SIZE)
                 if data:
+                    # assign a leader
                     self.assign_leader()
                     query = json.loads(data.decode())
+                    # account for deletion of the target for an update process request
                     if query[0] == utils.SDFS_Type.UPDATE_PROCESS:
                         self.update_process(target)
                         continue
-
+                    # delete the file from the file structure for a delete request
                     if query[0] == utils.SDFS_Type.DELETE:
                         self.delete(query[1])
                         continue
-                    
+                    # call multicast with the file structures to update them for an update file request
                     if query[0] == utils.SDFS_Type.UPDATE_FILES:
                         self.multicast_files(query[1], query[2])
                         continue
-
+                    # otherwise, perform the PUT, GET, ROUTE, RECEIVE_FILE requests
                     arg, target, local_filename, sdfs_filename = query
                     if arg == utils.SDFS_Type.PUT:
                         self.put(local_filename, sdfs_filename, target)
@@ -198,7 +197,7 @@ class Server:
                         open(sdfs_filename, "a+").close()
                         thread = threading.Thread(target = self.receive_file, args = (sdfs_filename, (target, PORT + 2)))
                         thread.start()
-                    
+                    # call multicast every time an operation is done
                     self.multicast_files()
             except:
                 pass
@@ -315,12 +314,10 @@ class Server:
 
         return
 
-
+    # assign the leader to be the node with the lowest id 
     def assign_leader(self):
         keys = sorted(self.MembershipList.keys())
-        # print(keys)
         for node in keys:
-            # check new vs running? 
             if (self.MembershipList[node][1] != utils.Status.LEAVE):
                 self.INTRODUCER_HOST = node
                 break
@@ -350,7 +347,9 @@ class Server:
                             monitor_logger.info(json.dumps(self.MembershipList))
                             self.MembershipList[hostname] = (value[0], utils.Status.LEAVE)
                             # Node dies
+                            # update leader
                             self.assign_leader()
+                            # ensure that a new replica stores the files from the failed node
                             self.update_process(hostname)
                             monitor_logger.info("Encounter timeout after:")
                             monitor_logger.info(json.dumps(self.MembershipList))
@@ -400,7 +399,7 @@ class Server:
        
         print(IP + "#" + self.MembershipList[HOST][0])
 
-    
+    # if node is the introducer/leader, delete "target" from file structures and assign a replicas for the files
     def update_process(self, target):
         outgoing_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         if HOST == utils.INTRODUCER_HOST:
@@ -466,21 +465,18 @@ class Server:
         send_socket.sendto(json.dumps(query).encode(), (target, PORT + 1))
         data, _ = send_socket.recvfrom(SIZE)
         msg = data.decode()
-        # print(msg)
 
         # Send the size to the target, wait for ACK
         size = os.path.getsize(source_filename)
         send_socket.sendto(str(size).encode(), recv_addr)
         data, _ = send_socket.recvfrom(SIZE)
         msg = data.decode()
-        # print(msg)
         
         # Send the data to the target, wait for ACK
         with open(source_filename, "r") as f:
             send_socket.sendto(f.read().encode(), recv_addr)
         data, _ = send_socket.recvfrom(SIZE)
         msg = data.decode()
-        # print(msg)
 
         send_socket.close()
         self.send_lock.release()
@@ -492,7 +488,7 @@ class Server:
         t = threading.Thread(target = self.send_file, args = (source_filename, dest_filename, target))
         t.start()
 
-
+    # if the host is the introducer, remove all instances of the file from the file structures, else send a delete request to introducer
     def delete(self, sdfs_filename):
         sender_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         if HOST != self.INTRODUCER_HOST:
@@ -504,7 +500,7 @@ class Server:
                     self.FilesByMachine[m].remove(f"{sdfs_filename}-{v}")
             self.MachinesByFile.pop(sdfs_filename)
 
-
+    # to put a file, find alive nodes for the replicas, update the file at each replica
     def put(self, local_filename, sdfs_filename, target):
         sender_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         if HOST != self.INTRODUCER_HOST:
@@ -533,6 +529,7 @@ class Server:
 
             replica_set = get_replica_set()
 
+            # update the replicas from the generated replica set and the file structures with the respective files and replicas
             if sdfs_filename not in self.MachinesByFile:
                 self.MachinesByFile[sdfs_filename] = {}
             current_version = len(self.MachinesByFile[sdfs_filename]) + 1
@@ -547,7 +544,7 @@ class Server:
 
                 self.FilesByMachine[i].append(internal_sdfs_filename)
 
-
+    # if leader, find the replica with the file and version and send a ROUTE, else send a GET to the leader
     def get(self, local_filename, sdfs_filename, target, version = 0):
         outgoing_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         if HOST != self.INTRODUCER_HOST:
@@ -558,7 +555,6 @@ class Server:
             # Return if we're going back too far in time (not enough versions of the file found)
             if version <= 0 or version > len(self.MachinesByFile[sdfs_filename]):
                 return
-            # print(version, self.MachinesByFile, self.FilesByMachine)
             replica_node = utils.elem(self.MachinesByFile[sdfs_filename][version]) # gets a machine with the replica on it, simply need to route
             query = [utils.SDFS_Type.ROUTE, target, f".files/{sdfs_filename}-{version}", local_filename]
             outgoing_socket.sendto(json.dumps(query).encode(), (replica_node, PORT + 1))
@@ -674,8 +670,6 @@ class Server:
         t_detector = threading.Thread(target=self.detector_program)
         t_sdfs = threading.Thread(target=self.sdfs_program)
         t_shell = threading.Thread(target=self.shell)
-        # t_sender = threading.Thread(target=self.send_ping)
-        # t_server_mp1 = threading.Thread(target = mp1_server.server_program)
         threads = []
         i = 0
         for host in utils.get_neighbors(HOST):
@@ -686,28 +680,17 @@ class Server:
         t_detector.start()
         t_sdfs.start()
         t_shell.start()
-        # t_sender.start()
-        # t_server_mp1.start()
         for t in threads:
             t.start()
         t_monitor.join()
         t_detector.join()
         t_shell.join()
         t_sdfs.join()
-        # t_sender.join()
-        # t_server_mp1.join()
-        # print("post-mp1-server")
         for t in threads:
             t.join()
         print("PROGRAM FINISHED.")
         return
-    # exit(0)
 if __name__ == '__main__':
     s = Server()
     s.run()
 
-
-#loop through mem list and find highest id when leader fails 
-# everytime you store a replica, update filestructure
-# where to multicast to neighbors
-#  
