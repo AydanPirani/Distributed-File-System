@@ -136,7 +136,6 @@ class Server:
             if self.MembershipList[HOST][1] == utils.Status.LEAVE or host not in self.MembershipList or self.MembershipList[host][1] == utils.Status.LEAVE:
                 continue
             try:
-                print("ping")
                 self.ml_lock.acquire()
                 # get curr time
                 timestamp = str(int(time.time()))
@@ -239,7 +238,6 @@ class Server:
                     
                     request_membership = request_list[2]
 
-                    print("receiver")
                     self.ml_lock.acquire()
                     # everytime a ping with JOIN status is reveived, set that node to NEW in the current HOSTS's membership lisy
                     # if the current node, HOST, is an introducer, send the JOIN message out to all of the nodes
@@ -648,28 +646,9 @@ class Server:
                 for i in range(num_versions):
                     self.get(f"output/{local_filename}/{sdfs_filename}-{i}", sdfs_filename, HOST, i)
 
-                # while (len(os.listdir(".internal")) != min(num_versions, len(self.MachinesByFile[sdfs_filename]))):
-                #     pass
+                while (len(os.listdir(f"output/{local_filename}")) != min(num_versions, len(self.MachinesByFile[sdfs_filename]))):
+                    pass
                 
-                # l = list(os.listdir(".internal"))
-                # f = open(local_filename, "w")
-
-                # for i in l:
-                #     f.write(f"=====================\nDATA AT {i.upper()}: \n")
-                #     t_f = open(f".internal/{i}", "r")
-                #     s = t_f.read()
-                #     f.write(s)
-                #     t_f.close()
-
-
-                # t_f = open(f".internal/{l[-1]}", "r")
-                # s = t_f.read()
-                # f.write(s)
-                # t_f.close()
-                    
-                # f.close()
-
-                # self.recv_lock.release()
             elif input_str == "7":
                 print("Selected list_mem")
                 self.print_membership_list()
