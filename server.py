@@ -93,7 +93,6 @@ class Server:
 
         return: None
         '''
-        # print("start joining")
         timestamp = str(int(time.time()))
         join_logger.info("Encounter join before:")
         join_logger.info(self.MembershipList)
@@ -125,7 +124,6 @@ class Server:
 
         return: None
         '''
-        # print("sender started")
         outgoing_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         while RUNNING:
             time.sleep(0.3)
@@ -215,7 +213,6 @@ class Server:
         
         return: None
         '''
-        # print("detector receiver started")
         detection_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         detection_socket.bind((HOST, PORT))
         detection_socket.setblocking(0)
