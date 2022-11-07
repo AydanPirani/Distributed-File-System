@@ -23,12 +23,12 @@ You can input the following numbers for each command one at a time and enter the
 
 For example, to run put, the terminal would look like the following:
 
-Please enter command: 1
-Selected put
-Enter local filename: hi
-local file does not exist! please try again
-Please enter command: 1 
-Selected put
-Enter local filename: v3
-Enter SDFS filename: v
-Finished Operation! Time Taken: 0:00:01.405673
+    Please enter command: 1
+    Selected put
+    Enter local filename: hi
+    local file does not exist! please try again
+    Please enter command: 1 
+    Selected put
+    Enter local filename: v3
+    Enter SDFS filename: v
+    Finished Operation! Time Taken: 0:00:01.405673
