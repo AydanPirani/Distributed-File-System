@@ -378,7 +378,6 @@ class Server:
         self.MembershipList[HOST] = (prev_timestamp, utils.Status.LEAVE)
         monitor_logger.info("Encounter leave after:")
         monitor_logger.info(json.dumps(self.MembershipList))
-        print(self.MembershipList)
         self.time_lock.release()
 
 
@@ -404,7 +403,6 @@ class Server:
     
     def update_process(self, target):
         outgoing_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        print(self.MachinesByFile, self.FilesByMachine)
         if HOST == utils.INTRODUCER_HOST:
             # Send a bunch of reroute messages
             for internal_f in self.FilesByMachine[target]:
@@ -424,7 +422,6 @@ class Server:
                         q = [utils.SDFS_Type.ROUTE, new_replica, f, f".files/{internal_f}"]
                         outgoing_socket.sendto(json.dumps(q).encode(), (old_replica, PORT + 1))
                         break
-            print(self.MachinesByFile, self.FilesByMachine)
         else:
             query = [utils.SDFS_Type.UPDATE_PROCESS, target, "", ""]
             outgoing_socket.sendto(json.dumps(query).encode(), (utils.INTRODUCER_HOST, PORT + 1))
