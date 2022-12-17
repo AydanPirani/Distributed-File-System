@@ -1,5 +1,4 @@
-This is the repository for CS425 MP3. In this MP we write a SDFS program that is tolerant to up to three simultaneous machine failures. After failure(s), we ensure that data is rereplicated quickly so that another (set of) failures that happens soon after is
-tolerated.
+In this repository, we designed a distributed file system that is tolerant to up to three simultaneous machine failures. After failure(s), we ensure that data is rereplicated quickly so that another (set of) failures that happens soon after is tolerated.
 
 ## Usage
 You should run ```server.py``` on the provided virtual machines.
